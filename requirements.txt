@@ -1,0 +1,12 @@
+numpy>=1.24.0
+pandas>=2.0.0
+open3d>=0.17.0  # For point cloud processing
+scipy>=1.10.0    # For scientific computing
+matplotlib>=3.7.0  # For visualization
+
+# Development and testing
+pytest>=7.4.0
+black>=23.7.0
+flake8>=6.1.0
+mypy>=1.5.0
+pytest-cov>=4.1.0 
