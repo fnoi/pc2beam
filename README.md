@@ -16,6 +16,7 @@ This package provides tools and utilities for processing point cloud data and co
 - Segment-level orientation estimation
 - Point projection and parametric shape fitting from standardized catalog
 - Model reconstruction and export to IFC format
+- Some nice visualizations for results and evaluation
 
 ## Installation
 
