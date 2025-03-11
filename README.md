@@ -16,7 +16,7 @@ This package provides tools and utilities for processing point cloud data and co
 - Segment-level orientation estimation
 - Point projection and parametric shape fitting from standardized catalog
 - Model reconstruction and export to IFC format
-- Some nice visualizations for results and evaluation
+- Some nice visualizations
 
 ## Installation
 
@@ -47,13 +47,16 @@ pip install -r requirements.txt
 
 ## Usage
 
-[Add usage examples and documentation here]
+This implementation takes point cloud input in *.txt format with coordinates $(X, Y, Z)$ normal vectors $(N_x, N_y, N_z)$, and instance labels $l_i$.
 
 ## Features
 
-- Point cloud data processing
-- Beam model generation
-- [Add more features as they are implemented]
+- Point cloud processing
+  - computation and evaluation of local orientation supernormal $\vec{s_1}$
+  - computation and evaluation of segment orientation $\vec{s_2}$ and point projection
+  - cross-section fitting using multi-objective optimization
+- Beam model generation and export to IFC format
+- Visualization of intermediate and final results
 
 ## Development
 
