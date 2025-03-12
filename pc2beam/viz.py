@@ -20,6 +20,7 @@ def plot_point_cloud(
     title: str = "Point Cloud Visualization",
     width: int = 1000,
     height: int = 800,
+    max_points: int = 10000,
 ) -> go.Figure:
     """
     Create an interactive 3D visualization of point cloud data.
@@ -34,32 +35,56 @@ def plot_point_cloud(
         title: Plot title
         width: Figure width in pixels
         height: Figure height in pixels
+        max_points: Maximum number of points to display
         
     Returns:
         Plotly figure object that can be displayed in notebook or saved to HTML
     """
+    # Get total number of points
+    total_points = len(points)
+    
+    # Sample points if there are too many
+    if total_points > max_points:
+        # Use fixed seed for reproducibility
+        np.random.seed(42)
+        sample_idx = np.random.choice(total_points, max_points, replace=False)
+        points_viz = points[sample_idx]
+        normals_viz = normals[sample_idx] if normals is not None else None
+        instances_viz = instances[sample_idx] if instances is not None else None
+        
+        # Enhanced title with sampling info
+        enhanced_title = f"{title} | Points: {max_points}/{total_points}"
+    else:
+        points_viz = points
+        normals_viz = normals
+        instances_viz = instances
+        sample_idx = np.arange(total_points)
+        
+        # Enhanced title with point count
+        enhanced_title = f"{title} | Points: {total_points}"
+    
     # Create figure with subplots for legend
     fig = make_subplots(
         rows=1, cols=1,
         specs=[[{"type": "scene"}]],
-        subplot_titles=[title]
+        subplot_titles=[enhanced_title]
     )
     
     # Prepare colors
-    if color_by == "instance" and instances is not None:
+    if color_by == "instance" and instances_viz is not None:
         # Generate color map for instances
-        unique_instances = np.unique(instances)
+        unique_instances = np.unique(instances_viz)
         colors = _generate_colors(len(unique_instances))
         color_map = dict(zip(unique_instances, colors))
         
         # Add points by instance for better legend
         for instance_id in unique_instances:
-            mask = instances == instance_id
+            mask = instances_viz == instance_id
             fig.add_trace(
                 go.Scatter3d(
-                    x=points[mask, 0],
-                    y=points[mask, 1],
-                    z=points[mask, 2],
+                    x=points_viz[mask, 0],
+                    y=points_viz[mask, 1],
+                    z=points_viz[mask, 2],
                     mode="markers",
                     marker=dict(
                         size=2,
@@ -70,14 +95,14 @@ def plot_point_cloud(
                 )
             )
     
-    elif color_by == "normal" and normals is not None:
+    elif color_by == "normal" and normals_viz is not None:
         # Color by normal direction
-        point_colors = (normals + 1) / 2  # Map [-1,1] to [0,1]
+        point_colors = (normals_viz + 1) / 2  # Map [-1,1] to [0,1]
         fig.add_trace(
             go.Scatter3d(
-                x=points[:, 0],
-                y=points[:, 1],
-                z=points[:, 2],
+                x=points_viz[:, 0],
+                y=points_viz[:, 1],
+                z=points_viz[:, 2],
                 mode="markers",
                 marker=dict(
                     size=2,
@@ -93,9 +118,9 @@ def plot_point_cloud(
         # Uniform coloring
         fig.add_trace(
             go.Scatter3d(
-                x=points[:, 0],
-                y=points[:, 1],
-                z=points[:, 2],
+                x=points_viz[:, 0],
+                y=points_viz[:, 1],
+                z=points_viz[:, 2],
                 mode="markers",
                 marker=dict(
                     size=2,
@@ -107,28 +132,34 @@ def plot_point_cloud(
         )
     
     # Add normal vectors if requested and available
-    if show_normals and normals is not None:
+    if show_normals and normals_viz is not None:
         # Sample points for normal visualization (avoid cluttering)
-        n_points = len(points)
+        n_points = len(points_viz)
         n_samples = min(1000, n_points)
-        idx = np.random.choice(n_points, n_samples, replace=False)
+        
+        # Use fixed seed for reproducibility
+        np.random.seed(42)
+        normal_idx = np.random.choice(n_points, n_samples, replace=False)
         
         # Create arrows for normals
-        normal_end = points[idx] + normals[idx] * normal_length
+        normal_end = points_viz[normal_idx] + normals_viz[normal_idx] * normal_length
         
         # Add normal vectors as lines
         for i in range(n_samples):
             fig.add_trace(
                 go.Scatter3d(
-                    x=[points[idx[i], 0], normal_end[i, 0]],
-                    y=[points[idx[i], 1], normal_end[i, 1]],
-                    z=[points[idx[i], 2], normal_end[i, 2]],
+                    x=[points_viz[normal_idx[i], 0], normal_end[i, 0]],
+                    y=[points_viz[normal_idx[i], 1], normal_end[i, 1]],
+                    z=[points_viz[normal_idx[i], 2], normal_end[i, 2]],
                     mode="lines",
                     line=dict(color="grey", width=2),
                     showlegend=True if i == 0 else False,
                     name="Normals" if i == 0 else None
                 )
             )
+        
+        # Update title with normal count
+        fig.layout.annotations[0].text = f"{enhanced_title} | Normals: {n_samples}"
     
     # Update layout
     fig.update_layout(
