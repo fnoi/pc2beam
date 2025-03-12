@@ -53,9 +53,12 @@ The package processes two types of input files:
 
 2. Steel profile catalog (*.csv format) with standardized cross-section definitions
 
-Example data files are provided in the `./data` directory:
-- `test_points.txt`: Sample point cloud data
-- `profiles.csv`: Sample steel profile catalog
+Example files are provided in the repository:
+- Data files in `./data/`:
+  - `test_points.txt`: Sample point cloud data
+  - `profiles.csv`: Sample steel profile catalog
+- Interactive tutorial in `./notebooks/`:
+  - `demo.ipynb`: Step-by-step demonstration of the package functionality
 
 ## License
 
