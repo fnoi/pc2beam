@@ -1,10 +1,6 @@
 # PC2Beam
 
-A Python package for converting point cloud data to beam models.
-
-## Introduction
-
-This package implements the methodology described in the paper ["Automated Steel Structure Model Reconstruction through Point Cloud Instance Segmentation and Parametric Shape Fitting"](https://arxiv.org/abs/2403.XXXXX) (2025, under review).
+A Python package for converting point cloud data to beam models. This package implements the methodology described in the paper ["Automated Steel Structure Model Reconstruction through Point Cloud Instance Segmentation and Parametric Shape Fitting"](https://arxiv.org/abs/2403.XXXXX) (2025, under review).
 
 If you use this code in your academic work, please cite the paper using the citation information provided at the bottom of this README.
 
@@ -12,11 +8,12 @@ If you use this code in your academic work, please cite the paper using the cita
 
 This package provides tools and utilities for processing point cloud data and converting it into beam models. The methodology includes:
 
-- Local neighborhood orientation estimation
-- Segment-level orientation estimation
-- Point projection and parametric shape fitting from standardized catalog
+- Point cloud processing
+  - Local neighborhood orientation estimation using supernormal $\vec{s_1}$
+  - Segment-level orientation estimation $\vec{s_2}$ and point projection
+  - Cross-section fitting using multi-objective optimization from standardized catalog
 - Model reconstruction and export to IFC format
-- Some nice visualizations
+- Visualization tools for intermediate and final results
 
 ## Installation
 
@@ -47,38 +44,18 @@ pip install -r requirements.txt
 
 ## Usage
 
-This implementation takes point cloud input in *.txt format with coordinates $(X, Y, Z)$ normal vectors $(N_x, N_y, N_z)$, and instance labels $l_i$.
+The package processes two types of input files:
 
-## Features
+1. Point cloud data (*.txt format) containing:
+   - Coordinates $(X, Y, Z)$
+   - Normal vectors $(N_x, N_y, N_z)$
+   - Instance labels $l_i$
 
-- Point cloud processing
-  - computation and evaluation of local orientation supernormal $\vec{s_1}$
-  - computation and evaluation of segment orientation $\vec{s_2}$ and point projection
-  - cross-section fitting using multi-objective optimization
-- Beam model generation and export to IFC format
-- Visualization of intermediate and final results
+2. Steel profile catalog (*.csv format) with standardized cross-section definitions
 
-## Development
-
-The development environment uses the same dependencies as the main package. To get started:
-
-1. Create and activate a virtual environment as described in the Installation section
-2. Install dependencies using `pip install -r requirements.txt`
-
-## Testing
-
-Run tests using:
-```bash
-pytest
-```
-
-## Contributing
-
-1. Fork the repository
-2. Create a feature branch
-3. Commit your changes
-4. Push to the branch
-5. Create a Pull Request
+Example data files are provided in the `./data` directory:
+- `test_points.txt`: Sample point cloud data
+- `profiles.csv`: Sample steel profile catalog
 
 ## License
 
