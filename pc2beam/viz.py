@@ -30,7 +30,7 @@ def plot_point_cloud(
         normals: Optional normal vectors of shape (N, 3)
         instances: Optional instance labels of shape (N,)
         show_normals: Whether to show normal vectors
-        color_by: How to color points ('instance', 'normal', or 'uniform')
+        color_by: How to color points ('instance' or 'uniform')
         normal_length: Length of normal vector arrows
         title: Plot title
         width: Figure width in pixels
@@ -53,7 +53,7 @@ def plot_point_cloud(
         instances_viz = instances[sample_idx] if instances is not None else None
         
         # Enhanced title with sampling info
-        enhanced_title = f"{title} | Points: {max_points}/{total_points}"
+        enhanced_title = f"{title} | Points: {max_points} (of {total_points})"
     else:
         points_viz = points
         normals_viz = normals
@@ -94,26 +94,6 @@ def plot_point_cloud(
                     name=f"Instance {instance_id}"
                 )
             )
-    
-    elif color_by == "normal" and normals_viz is not None:
-        # Color by normal direction
-        point_colors = (normals_viz + 1) / 2  # Map [-1,1] to [0,1]
-        fig.add_trace(
-            go.Scatter3d(
-                x=points_viz[:, 0],
-                y=points_viz[:, 1],
-                z=points_viz[:, 2],
-                mode="markers",
-                marker=dict(
-                    size=2,
-                    color=point_colors[:, 1],  # Use y component for coloring
-                    colorscale="Viridis",
-                    opacity=0.8
-                ),
-                name="Points"
-            )
-        )
-    
     else:
         # Uniform coloring
         fig.add_trace(
@@ -135,10 +115,10 @@ def plot_point_cloud(
     if show_normals and normals_viz is not None:
         # Sample points for normal visualization (avoid cluttering)
         n_points = len(points_viz)
-        n_samples = min(1000, n_points)
+        n_samples = min(1000, n_points)  # Limit number of normals to display
         
         # Use fixed seed for reproducibility
-        np.random.seed(42)
+        np.random.seed(43)  # Different seed than for points
         normal_idx = np.random.choice(n_points, n_samples, replace=False)
         
         # Create arrows for normals
