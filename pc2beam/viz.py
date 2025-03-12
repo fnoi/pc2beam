@@ -115,31 +115,23 @@ def plot_point_cloud(
     if show_normals and normals_viz is not None:
         # Sample points for normal visualization (avoid cluttering)
         n_points = len(points_viz)
-        n_samples = min(1000, n_points)  # Limit number of normals to display
-        
-        # Use fixed seed for reproducibility
-        np.random.seed(43)  # Different seed than for points
-        normal_idx = np.random.choice(n_points, n_samples, replace=False)
-        
+                
         # Create arrows for normals
-        normal_end = points_viz[normal_idx] + normals_viz[normal_idx] * normal_length
+        normal_end = points_viz + normals_viz * normal_length
         
         # Add normal vectors as lines
-        for i in range(n_samples):
+        for i in range(n_points):
             fig.add_trace(
                 go.Scatter3d(
-                    x=[points_viz[normal_idx[i], 0], normal_end[i, 0]],
-                    y=[points_viz[normal_idx[i], 1], normal_end[i, 1]],
-                    z=[points_viz[normal_idx[i], 2], normal_end[i, 2]],
+                    x=[points_viz[i, 0], normal_end[i, 0]],
+                    y=[points_viz[i, 1], normal_end[i, 1]],
+                    z=[points_viz[i, 2], normal_end[i, 2]],
                     mode="lines",
-                    line=dict(color="grey", width=2),
+                    line=dict(color="grey", width=1.5),
                     showlegend=True if i == 0 else False,
                     name="Normals" if i == 0 else None
                 )
             )
-        
-        # Update title with normal count
-        fig.layout.annotations[0].text = f"{enhanced_title} | Normals: {n_samples}"
     
     # Update layout
     fig.update_layout(
@@ -177,16 +169,26 @@ def save_html(
 
 
 def _generate_colors(n: int) -> list:
-    """Generate distinct colors for visualization."""
-    import colorsys
+    """
+    Generate distinct colors for visualization using matplotlib's tab10 colormap.
     
-    # Use HSV color space for even distribution
+    Args:
+        n: Number of colors to generate
+        
+    Returns:
+        List of RGB color strings
+    """
+    import matplotlib.pyplot as plt
+    import matplotlib.colors as mcolors
+    
+    # Get tab10 colormap (10 distinct colors)
+    tab10 = plt.cm.get_cmap('tab10')
+    
     colors = []
     for i in range(n):
-        hue = i / n
-        saturation = 0.7 + 0.3 * (i % 2)  # Alternate saturation
-        value = 0.8 + 0.2 * (i % 2)  # Alternate brightness
-        rgb = colorsys.hsv_to_rgb(hue, saturation, value)
+        # Cycle through tab10 colors if n > 10
+        color_idx = i % 10
+        rgb = tab10(color_idx)[:3]  # Extract RGB (ignore alpha)
         colors.append(f'rgb({int(rgb[0]*255)},{int(rgb[1]*255)},{int(rgb[2]*255)})')
     
     return colors 
