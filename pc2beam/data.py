@@ -10,6 +10,7 @@ import open3d as o3d
 import plotly.graph_objects as go
 
 from . import viz
+from . import processing
 
 
 class PointCloud:
@@ -167,3 +168,9 @@ class PointCloud:
         """
         fig = self.visualize(**kwargs)
         viz.save_html(fig, path) 
+
+    def calculate_s1(self) -> np.ndarray:
+        """
+        Calculate local orientation supernormal feature s1.
+        """
+        return processing.calculate_s1(self.points, self.normals)
