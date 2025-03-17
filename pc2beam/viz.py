@@ -115,14 +115,11 @@ def plot_point_cloud(
     
     # Add normal vectors if requested and available
     if show_normals and normals_viz is not None:
-        # Sample points for normal visualization (avoid cluttering)
-        n_points = len(points_viz)
-                
         # Create arrows for normals
         normal_end = points_viz + normals_viz * normal_length
         
         # Add normal vectors as lines
-        for i in range(n_points):
+        for i in range(len(points_viz)):
             fig.add_trace(
                 go.Scatter3d(
                     x=[points_viz[i, 0], normal_end[i, 0]],
@@ -137,7 +134,7 @@ def plot_point_cloud(
             )
         
         # Update title with normal count
-        fig.layout.annotations[0].text = f"{enhanced_title} | Normals: {n_points}"
+        fig.layout.annotations[0].text = f"{enhanced_title} | Normals: {len(points_viz)}"
     
     # Update layout
     fig.update_layout(
@@ -298,24 +295,16 @@ def plot_point_cloud_with_supernormals(
     
     # Add supernormal vectors if requested
     if show_supernormals:
-        # Sample points for supernormal visualization (avoid cluttering)
-        n_points = len(points_viz)
-        n_samples = min(1000, n_points)
-        
-        # Use fixed seed for reproducibility
-        np.random.seed(43)
-        s1_idx = np.random.choice(n_points, n_samples, replace=False)
-        
         # Create arrows for supernormals
-        s1_ends = points_viz[s1_idx] + s1_vectors_viz[s1_idx] * normal_length
+        s1_ends = points_viz + s1_vectors_viz * normal_length
         
         # Add supernormal vectors as lines
-        for i in range(n_samples):
+        for i in range(len(points_viz)):
             fig.add_trace(
                 go.Scatter3d(
-                    x=[points_viz[s1_idx[i], 0], s1_ends[i, 0]],
-                    y=[points_viz[s1_idx[i], 1], s1_ends[i, 1]],
-                    z=[points_viz[s1_idx[i], 2], s1_ends[i, 2]],
+                    x=[points_viz[i, 0], s1_ends[i, 0]],
+                    y=[points_viz[i, 1], s1_ends[i, 1]],
+                    z=[points_viz[i, 2], s1_ends[i, 2]],
                     mode="lines",
                     line=dict(
                         color="red", 
@@ -328,7 +317,7 @@ def plot_point_cloud_with_supernormals(
             )
         
         # Update title with supernormal count
-        fig.layout.annotations[0].text = f"{enhanced_title} | Supernormals: {n_samples}"
+        fig.layout.annotations[0].text = f"{enhanced_title} | Supernormals: {len(points_viz)}"
     
     # Update layout
     fig.update_layout(
