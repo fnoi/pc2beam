@@ -91,7 +91,8 @@ def plot_point_cloud(
                         color=color_map[instance_id],
                         opacity=0.8
                     ),
-                    name=f"Instance {instance_id}"
+                    name=f"Instance {instance_id}",
+                    hoverinfo="none"
                 )
             )
     else:
@@ -107,7 +108,8 @@ def plot_point_cloud(
                     color="blue",
                     opacity=0.8
                 ),
-                name="Points"
+                name="Points",
+                hoverinfo="none"
             )
         )
     
@@ -115,23 +117,32 @@ def plot_point_cloud(
     if show_normals and normals_viz is not None:
         # Sample points for normal visualization (avoid cluttering)
         n_points = len(points_viz)
+        n_samples = min(1000, n_points)
+        
+        # Use fixed seed for reproducibility
+        np.random.seed(43)
+        normal_idx = np.random.choice(n_points, n_samples, replace=False)
                 
         # Create arrows for normals
-        normal_end = points_viz + normals_viz * normal_length
+        normal_end = points_viz[normal_idx] + normals_viz[normal_idx] * normal_length
         
         # Add normal vectors as lines
-        for i in range(n_points):
+        for i in range(n_samples):
             fig.add_trace(
                 go.Scatter3d(
-                    x=[points_viz[i, 0], normal_end[i, 0]],
-                    y=[points_viz[i, 1], normal_end[i, 1]],
-                    z=[points_viz[i, 2], normal_end[i, 2]],
+                    x=[points_viz[normal_idx[i], 0], normal_end[i, 0]],
+                    y=[points_viz[normal_idx[i], 1], normal_end[i, 1]],
+                    z=[points_viz[normal_idx[i], 2], normal_end[i, 2]],
                     mode="lines",
                     line=dict(color="grey", width=1.5),
                     showlegend=True if i == 0 else False,
-                    name="Normals" if i == 0 else None
+                    name="Normals" if i == 0 else None,
+                    hoverinfo="none"
                 )
             )
+        
+        # Update title with normal count
+        fig.layout.annotations[0].text = f"{enhanced_title} | Normals: {n_samples}"
     
     # Update layout
     fig.update_layout(
@@ -148,7 +159,8 @@ def plot_point_cloud(
         ),
         width=width,
         height=height,
-        showlegend=True
+        showlegend=True,
+        hovermode=False
     )
     
     return fig

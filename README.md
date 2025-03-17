@@ -57,6 +57,7 @@ Example files are provided in the repository:
 - Data files in `./data/`:
   - `test_points.txt`: Sample point cloud data
   - `profiles.csv`: Sample steel profile catalog
+  - 
 - Interactive tutorial in `./notebooks/`:
   - `demo.ipynb`: Step-by-step demonstration of the package functionality
 
