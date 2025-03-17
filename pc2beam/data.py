@@ -3,7 +3,7 @@ Point cloud data structures and processing utilities.
 """
 
 from pathlib import Path
-from typing import Optional, Union
+from typing import Dict, Optional, Union
 
 import numpy as np
 import open3d as o3d
@@ -22,6 +22,7 @@ class PointCloud:
         normals (Optional[np.ndarray]): Normal vectors of shape (N, 3)
         instances (np.ndarray): Instance labels of shape (N,)
         metadata (dict): Additional information about the point cloud
+        features (dict): Point-wise features including s1
     """
     
     def __init__(
@@ -42,6 +43,7 @@ class PointCloud:
         self.normals = self._validate_normals(normals) if normals is not None else None
         self.instances = self._validate_instances(instances) if instances is not None else None
         self.metadata = {}
+        self.features = {}
         
     def _validate_points(self, points: np.ndarray) -> np.ndarray:
         """Validate point coordinates."""
@@ -169,8 +171,23 @@ class PointCloud:
         fig = self.visualize(**kwargs)
         viz.save_html(fig, path) 
 
-    def calculate_s1(self) -> np.ndarray:
+    def calculate_s1(self, k: int = 30) -> None:
         """
-        Calculate local orientation supernormal feature s1.
+        Calculate and store local orientation supernormal feature s1 for each point.
+        Requires normals to be present.
+        
+        Args:
+            k: Number of nearest neighbors for local analysis
         """
-        return processing.calculate_s1(self.points, self.normals)
+        if not self.has_normals:
+            raise ValueError("Normals are required to calculate s1 feature")
+            
+        features = processing.calculate_s1(self.points, self.normals, k=k)
+        
+        # Store all features
+        self.features.update(features)
+
+    @property
+    def has_s1_feature(self) -> bool:
+        """Check if point cloud has s1 feature computed."""
+        return "s1" in self.features
