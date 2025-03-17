@@ -1,0 +1,18 @@
+# Default configuration for PC2Beam
+
+# S1 feature computation parameters
+s1:
+  radius: 0.1
+  k: 30
+  use_radius: true
+
+# Visualization parameters
+visualization:
+  normal_length: 0.1
+  max_points: 10000
+  width: 1000
+  height: 800
+
+# Processing parameters
+processing:
+  min_points_per_instance: 50 

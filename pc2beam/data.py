@@ -160,6 +160,27 @@ class PointCloud:
             **kwargs
         )
     
+    def visualize_with_supernormals(self, **kwargs) -> go.Figure:
+        """
+        Create an interactive 3D visualization using Plotly, showing supernormals instead of normal vectors.
+        
+        Args:
+            **kwargs: Additional arguments passed to viz.plot_point_cloud_with_supernormals()
+            
+        Returns:
+            Plotly figure object that can be displayed in notebook or saved to HTML
+        """
+        if not self.has_s1_feature:
+            raise ValueError("S1 feature must be calculated first. Call calculate_s1() before visualization.")
+            
+        return viz.plot_point_cloud_with_supernormals(
+            points=self.points,
+            features=self.features,
+            instances=self.instances,
+            normal_length=kwargs.get("normal_length", 0.1),
+            **kwargs
+        )
+    
     def save_html(self, path: Union[str, Path], **kwargs) -> None:
         """
         Save visualization as standalone HTML file.
@@ -171,18 +192,26 @@ class PointCloud:
         fig = self.visualize(**kwargs)
         viz.save_html(fig, path) 
 
-    def calculate_s1(self, k: int = 30) -> None:
+    def calculate_s1(self, radius: float = 0.1, k: int = 30, use_radius: bool = True) -> None:
         """
         Calculate and store local orientation supernormal feature s1 for each point.
         Requires normals to be present.
         
         Args:
-            k: Number of nearest neighbors for local analysis
+            radius: Radius for spherical neighborhood search
+            k: Number of nearest neighbors if not using radius-based search
+            use_radius: Whether to use radius-based search (True) or k-nearest neighbors (False)
         """
         if not self.has_normals:
             raise ValueError("Normals are required to calculate s1 feature")
             
-        features = processing.calculate_s1(self.points, self.normals, k=k)
+        features = processing.calculate_s1(
+            self.points, 
+            self.normals, 
+            radius=radius,
+            k=k,
+            use_radius=use_radius
+        )
         
         # Store all features
         self.features.update(features)
