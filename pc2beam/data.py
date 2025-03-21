@@ -227,7 +227,7 @@ class PointCloud:
         num_iterations: int = 1000
     ) -> None:
         """
-        Calculate segment orientation feature s2 for each cluster and store for each point.
+        Calculate segment orientation feature s2 for each cluster.
         Requires instance labels to be present.
         
         Args:
@@ -238,9 +238,9 @@ class PointCloud:
         if not self.has_instances:
             raise ValueError("Instance labels are required to calculate s2 feature")
         
-        print('pre-processing')
+        print('processing instances for s2 calculation')
 
-        features = processing.calculate_s2(
+        instance_features = processing.calculate_s2(
             self.points, 
             self.instances,
             distance_threshold=distance_threshold,
@@ -248,10 +248,114 @@ class PointCloud:
             num_iterations=num_iterations            
         )
         
-        # Store all features
-        self.features.update(features)
+        # Store instance features
+        self.features["instance_features"] = instance_features
 
     @property
     def has_s2_feature(self) -> bool:
         """Check if point cloud has s2 feature computed."""
-        return "s2" in self.features
+        return "instance_features" in self.features
+
+    def project_to_beam(self, min_points_per_instance: int = 10) -> None:
+        """
+        Project the points of each instance to its beam line defined by s2 and line_point.
+        Requires instances and s2 features to be present.
+        
+        Args:
+            min_points_per_instance: Minimum number of points required per instance
+        """
+        if not self.has_instances:
+            raise ValueError("Instance labels are required for beam projection")
+            
+        if not self.has_s2_feature:
+            raise ValueError("S2 features are required for beam projection")
+            
+        s2_vectors = self.features["s2"]
+        line_points = self.features["line_point"]
+        
+        # Project points to beam lines
+        beam_features = processing.project_to_line(
+            self.points,
+            self.instances,
+            s2_vectors,
+            line_points,
+            min_points_per_instance=min_points_per_instance
+        )
+        
+        # Store beam projection features
+        self.features.update(beam_features)
+        
+    @property
+    def has_beam_projection(self) -> bool:
+        """Check if point cloud has beam projection computed."""
+        return "projected_points" in self.features and "instance_info" in self.features
+
+    def visualize_beam_projection(self, **kwargs) -> go.Figure:
+        """
+        Create an interactive 3D visualization showing the beam projection.
+        
+        Args:
+            **kwargs: Additional arguments passed to viz.plot_beam_projection()
+            
+        Returns:
+            Plotly figure object that can be displayed in notebook or saved to HTML
+        """
+        if not self.has_beam_projection:
+            raise ValueError("Beam projection must be calculated first. Call project_to_beam() before visualization.")
+            
+        return viz.plot_beam_projection(
+            points=self.points,
+            projected_points=self.features["projected_points"],
+            instances=self.instances,
+            instance_info=self.features["instance_info"],
+            **kwargs
+        )
+
+    def project_to_centerline(self) -> None:
+        """
+        Project the points of each instance to its centerline defined by s2 and line_point.
+        Requires instances and s2 features to be present.
+        """
+        if not self.has_instances:
+            raise ValueError("Instance labels are required for centerline projection")
+            
+        if not self.has_s2_feature:
+            raise ValueError("S2 features are required for centerline projection")
+            
+        instance_features = self.features["instance_features"]
+        
+        # Project points to centerlines
+        centerline_features = processing.project_to_centerline(
+            self.points,
+            self.instances,
+            instance_features
+        )
+        
+        # Store centerline features
+        self.features.update(centerline_features)
+        
+    @property
+    def has_centerline_projection(self) -> bool:
+        """Check if point cloud has centerline projection computed."""
+        return "distances" in self.features and "centerlines" in self.features
+
+    def visualize_centerlines(self, **kwargs) -> go.Figure:
+        """
+        Create an interactive 3D visualization showing the centerlines.
+        
+        Args:
+            **kwargs: Additional arguments passed to viz.plot_centerlines()
+            
+        Returns:
+            Plotly figure object that can be displayed in notebook or saved to HTML
+        """
+        if not self.has_centerline_projection:
+            raise ValueError("Centerline projection must be calculated first. Call project_to_centerline() before visualization.")
+            
+        return viz.plot_centerlines(
+            points=self.points,
+            distances=self.features["distances"],
+            instances=self.instances,
+            centerlines=self.features["centerlines"],
+            **kwargs
+        )

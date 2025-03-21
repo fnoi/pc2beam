@@ -114,9 +114,9 @@ def calculate_s2(
     distance_threshold: float = 0.01, 
     ransac_n: int = 3, 
     num_iterations: int = 1000
-) -> np.ndarray:
+) -> dict:
     """
-    Calculate segment orientation feature s2 for each cluster and store for each point.
+    Calculate segment orientation feature s2 for each cluster.
     
     Args:
         points: Point coordinates of shape (N, 3)
@@ -126,14 +126,18 @@ def calculate_s2(
         num_iterations: Number of RANSAC iterations
         
     Returns:
-        s2_features: Dictionary containing:
-            - s2: Point-wise s2 values of shape (N, 3)
+        s2_features: Dictionary containing instance-level features:
+            - Dictionary keys are instance IDs
+            - Each instance has 's2' direction vector and 'line_point' position
     """
     if instances is None:
         raise ValueError("Instances are required to calculate s2 feature")
     
     # Process each instance separately
     unique_instances = np.unique(instances)
+    
+    # Dictionary to store results
+    instance_features = {}
     
     for instance_id in unique_instances:
         # Get points for this instance
@@ -153,7 +157,8 @@ def calculate_s2(
         # find a suitable P2
         while True:
             plane_P2, inliers_P2 = pcd.segment_plane(distance_threshold=distance_threshold, ransac_n=ransac_n, num_iterations=num_iterations)
-            angle_P1_P2 = np.arccos(np.dot(plane_P1[:3], plane_P2[:3]))
+            angle_P1_P2 = np.rad2deg(np.arccos(np.dot(plane_P1[:3], plane_P2[:3])))
+            print(f'angle_P1_P2: {angle_P1_P2}')
             if 45 < angle_P1_P2 < 135:
                 break
             else:
@@ -168,12 +173,205 @@ def calculate_s2(
 
         # calculate s2
         s2 = np.cross(n_P1, n_P2)
-
+        s2 = s2 / np.linalg.norm(s2)  # Normalize
+        
         line_point = np.cross((n_P1 * d_P2 - n_P2 * d_P1), s2) / np.linalg.norm(s2) ** 2
-        s2 = s2 / np.linalg.norm(s2)
+        
+        # Store features for this instance
+        instance_features[instance_id] = {
+            "s2": s2,
+            "line_point": line_point
+        }
 
-    # Return feature dictionary
+    # Return instance features dictionary
+    return instance_features
+
+def project_to_line(
+    points: np.ndarray,
+    instances: np.ndarray,
+    s2_vectors: np.ndarray,
+    line_points: np.ndarray,
+    min_points_per_instance: int = 2
+) -> dict:
+    """
+    Project the points of each instance to the line defined by s2 and line_point.
+    
+    Args:
+        points: Point coordinates of shape (N, 3)
+        instances: Instance labels of shape (N,)
+        s2_vectors: Beam direction vectors of shape (N, 3)
+        line_points: Points on the beam line of shape (N, 3)
+        min_points_per_instance: Minimum number of points required per instance
+        
+    Returns:
+        Dictionary containing:
+            - projected_points: Points projected onto beam lines of shape (N, 3)
+            - distances: Distances from original points to beam lines of shape (N,)
+            - instance_info: Length of each beam instance
+    """
+    if instances is None:
+        raise ValueError("Instances are required for beam projection")
+    
+    if s2_vectors is None or line_points is None:
+        raise ValueError("S2 features (s2 vectors and line points) are required for beam projection")
+    
+    # Initialize output arrays
+    N = len(points)
+    projected_points = np.zeros((N, 3))
+    distances = np.zeros(N)
+    
+    # Dictionary to store instance-specific information
+    instance_info = {}
+    
+    # Process each instance separately
+    unique_instances = np.unique(instances)
+    
+    for instance_id in unique_instances:
+        # Get points for this instance
+        instance_mask = instances == instance_id
+        instance_points = points[instance_mask]
+        
+        # Skip instances with too few points
+        if len(instance_points) < min_points_per_instance:
+            continue
+        
+        # Get s2 vector and line point for this instance
+        # Assuming all points in the instance have the same s2 vector and line point
+        s2_vec = s2_vectors[instance_mask][0]  # Direction vector (normalized)
+        line_pt = line_points[instance_mask][0]  # Point on the line
+        
+        # Project each point in the instance to the line
+        for i, idx in enumerate(np.where(instance_mask)[0]):
+            # Vector from line point to the current point
+            v = points[idx] - line_pt
+            
+            # Projection of v onto s2 (dot product)
+            proj_dist = np.dot(v, s2_vec)
+            
+            # Calculate projected point
+            projected_points[idx] = line_pt + proj_dist * s2_vec
+            
+            # Calculate distance from original point to the line
+            dist_vec = points[idx] - projected_points[idx]
+            distances[idx] = np.linalg.norm(dist_vec)
+        
+        # Calculate instance length by finding the extent of projected points
+        instance_projected = projected_points[instance_mask]
+        
+        # Project all points to the line
+        v = instance_points - line_pt
+        proj_dists = np.dot(v, s2_vec)
+        
+        # Get min and max distances along the beam direction
+        min_dist = np.min(proj_dists)
+        max_dist = np.max(proj_dists)
+        
+        # Store the length and endpoints
+        instance_length = max_dist - min_dist
+        start_point = line_pt + min_dist * s2_vec
+        end_point = line_pt + max_dist * s2_vec
+        
+        instance_info[instance_id] = {
+            "length": instance_length,
+            "start_point": start_point,
+            "end_point": end_point
+        }
+    
     return {
-        "s2": s2,
-        "line_point": line_point
+        "projected_points": projected_points,
+        "distances": distances,
+        "instance_info": instance_info
+    }
+
+def project_to_centerline(
+    points: np.ndarray,
+    instances: np.ndarray,
+    instance_features: dict
+) -> dict:
+    """
+    Project the points of each instance to the line defined by s2 and line_point,
+    and extract centerline endpoints.
+    
+    Args:
+        points: Point coordinates of shape (N, 3)
+        instances: Instance labels of shape (N,)
+        instance_features: Dictionary with s2 and line_point for each instance
+        
+    Returns:
+        Dictionary containing:
+            - distances: Distances from original points to centerlines of shape (N,)
+            - centerlines: Dictionary with information about each centerline
+    """
+    if instances is None:
+        raise ValueError("Instances are required for centerline projection")
+    
+    if instance_features is None:
+        raise ValueError("Instance features are required for centerline projection")
+    
+    # Initialize output arrays
+    N = len(points)
+    distances = np.zeros(N)
+    
+    # Dictionary to store centerline information
+    centerlines = {}
+    
+    # Process each instance separately
+    unique_instances = np.unique(instances)
+    
+    for instance_id in unique_instances:
+        # Skip if instance features are not available
+        if instance_id not in instance_features:
+            continue
+            
+        # Get points for this instance
+        instance_mask = instances == instance_id
+        instance_points = points[instance_mask]
+        
+        # Skip instances with too few points (need at least 2 to define a line)
+        if len(instance_points) < 2:
+            continue
+        
+        # Get s2 vector and line point for this instance
+        s2_vec = instance_features[instance_id]["s2"]  # Direction vector (normalized)
+        line_pt = instance_features[instance_id]["line_point"]  # Point on the line
+        
+        # Project all points to the line (for distance calculation)
+        for i, idx in enumerate(np.where(instance_mask)[0]):
+            # Vector from line point to the current point
+            v = points[idx] - line_pt
+            
+            # Projection of v onto s2 (dot product)
+            proj_dist = np.dot(v, s2_vec)
+            
+            # Calculate projected point for distance calculation
+            projected_point = line_pt + proj_dist * s2_vec
+            
+            # Calculate distance from original point to the line
+            dist_vec = points[idx] - projected_point
+            distances[idx] = np.linalg.norm(dist_vec)
+        
+        # Calculate centerline by finding the extent of projected points
+        # Project all points to the line at once
+        v = instance_points - line_pt
+        proj_dists = np.dot(v, s2_vec)
+        
+        # Get min and max distances along the centerline direction
+        min_dist = np.min(proj_dists)
+        max_dist = np.max(proj_dists)
+        
+        # Store the centerline information
+        centerline_length = max_dist - min_dist
+        start_point = line_pt + min_dist * s2_vec
+        end_point = line_pt + max_dist * s2_vec
+        
+        centerlines[instance_id] = {
+            "length": centerline_length,
+            "start_point": start_point,
+            "end_point": end_point,
+            "direction": s2_vec
+        }
+    
+    return {
+        "distances": distances,
+        "centerlines": centerlines
     }

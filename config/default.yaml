@@ -21,4 +21,8 @@ visualization:
 
 # Processing parameters
 processing:
-  min_points_per_instance: 50 
+  min_points_per_instance: 50
+
+# Centerline parameters
+centerline:
+  # No parameters needed - always requires at least 2 points 
