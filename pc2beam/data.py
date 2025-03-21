@@ -177,7 +177,6 @@ class PointCloud:
             points=self.points,
             features=self.features,
             instances=self.instances,
-            normal_length=kwargs.get("normal_length", 0.1),
             **kwargs
         )
     
@@ -220,3 +219,39 @@ class PointCloud:
     def has_s1_feature(self) -> bool:
         """Check if point cloud has s1 feature computed."""
         return "s1" in self.features
+
+    def calculate_s2(
+        self, 
+        distance_threshold: float = 0.01,
+        ransac_n: int = 3,
+        num_iterations: int = 1000
+    ) -> None:
+        """
+        Calculate segment orientation feature s2 for each cluster and store for each point.
+        Requires instance labels to be present.
+        
+        Args:
+            distance_threshold: Maximum distance a point can be from the plane model
+            ransac_n: Number of points to randomly sample for each RANSAC iteration
+            num_iterations: Number of RANSAC iterations
+        """
+        if not self.has_instances:
+            raise ValueError("Instance labels are required to calculate s2 feature")
+        
+        print('pre-processing')
+
+        features = processing.calculate_s2(
+            self.points, 
+            self.instances,
+            distance_threshold=distance_threshold,
+            ransac_n=ransac_n,
+            num_iterations=num_iterations            
+        )
+        
+        # Store all features
+        self.features.update(features)
+
+    @property
+    def has_s2_feature(self) -> bool:
+        """Check if point cloud has s2 feature computed."""
+        return "s2" in self.features

@@ -48,21 +48,65 @@ def main():
         
         # Run s1 processing with configuration parameters
         if 's1' in config:
-            radius = config.s1.radius
-            k = config.s1.k
-            use_radius = config.s1.use_radius
-            print(f"Computing S1 features with radius={radius}, k={k}, use_radius={use_radius}")
+            radius = config['s1']['radius']
+            k = config['s1']['k']
+            use_radius = config['s1']['use_radius']
+            print(f"Computing s1 features with radius={radius}, k={k}, use_radius={use_radius}")
         else:
             radius = 0.1
             k = 30
             use_radius = True
-            print(f"Using default S1 parameters: radius={radius}, k={k}, use_radius={use_radius}")
+            print(f"Using default s1 parameters: radius={radius}, k={k}, use_radius={use_radius}")
             
         point_cloud.calculate_s1(radius=radius, k=k, use_radius=use_radius)
-        print("S1 features computed successfully")
+        print("s1 features computed successfully")
         
-        # Additional processing steps would go here
-        # ...
+        # Run s2 processing with configuration parameters
+        if 's2' in config:
+            distance_threshold = config['s2']['distance_threshold']
+            ransac_n = config['s2']['ransac_n']
+            num_iterations = config['s2']['num_iterations']
+            print(f"Computing s2 features with distance_threshold={distance_threshold}, ransac_n={ransac_n}, num_iterations={num_iterations}")
+        else:
+            distance_threshold = 0.01
+            ransac_n = 3
+            num_iterations = 1000
+            print(f"Using default s2 parameters: distance_threshold={distance_threshold}, ransac_n={ransac_n}, num_iterations={num_iterations}")
+        
+        print('yikes')
+        point_cloud.calculate_s2(
+            distance_threshold=distance_threshold, 
+            ransac_n=ransac_n, 
+            num_iterations=num_iterations
+        )
+        print("s2 features computed successfully")
+        
+        # Generate visualization if in debug mode
+        if args.debug:
+            import os
+            
+            # Create output directory if it doesn't exist
+            os.makedirs("output", exist_ok=True)
+            
+            # Filename without extension
+            input_filename = Path(args.input_file).stem
+            
+            # Save standard visualization
+            print("Generating point cloud visualization...")
+            viz_file = f"output/{input_filename}_pointcloud.html"
+            point_cloud.save_html(viz_file)
+            print(f"Visualization saved to {viz_file}")
+            
+            # Save visualization with S1 features if available
+            if point_cloud.has_s1_feature:
+                print("Generating S1 feature visualization...")
+                s1_viz_file = f"output/{input_filename}_s1.html"
+                fig = point_cloud.visualize_with_supernormals(normal_length=0.15)
+                from pc2beam.viz import save_html
+                save_html(fig, s1_viz_file)
+                print(f"S1 visualization saved to {s1_viz_file}")
+                
+            print("Processing completed successfully")
 
 
 if __name__ == "__main__":

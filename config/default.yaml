@@ -2,9 +2,15 @@
 
 # S1 feature computation parameters
 s1:
-  radius: 0.1
+  radius: 0.25
   k: 30
   use_radius: true
+
+# S2 feature computation parameters
+s2:
+  distance_threshold: 0.01
+  ransac_n: 3
+  num_iterations: 1000
 
 # Visualization parameters
 visualization:

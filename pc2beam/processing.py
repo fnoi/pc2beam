@@ -1,5 +1,6 @@
 import numpy as np
 from sklearn.neighbors import KDTree
+import open3d as o3d
 
 def calculate_s1(
     points: np.ndarray, 
@@ -106,3 +107,73 @@ def consistency_flip(normals):
         normals = -normals
 
     return normals
+
+def calculate_s2(
+    points: np.ndarray, 
+    instances: np.ndarray,
+    distance_threshold: float = 0.01, 
+    ransac_n: int = 3, 
+    num_iterations: int = 1000
+) -> np.ndarray:
+    """
+    Calculate segment orientation feature s2 for each cluster and store for each point.
+    
+    Args:
+        points: Point coordinates of shape (N, 3)
+        instances: Instance labels of shape (N,)
+        distance_threshold: Maximum distance a point can be from the plane model
+        ransac_n: Number of points to randomly sample for each RANSAC iteration
+        num_iterations: Number of RANSAC iterations
+        
+    Returns:
+        s2_features: Dictionary containing:
+            - s2: Point-wise s2 values of shape (N, 3)
+    """
+    if instances is None:
+        raise ValueError("Instances are required to calculate s2 feature")
+    
+    # Process each instance separately
+    unique_instances = np.unique(instances)
+    
+    for instance_id in unique_instances:
+        # Get points for this instance
+        instance_mask = instances == instance_id
+        instance_points = points[instance_mask]
+        
+        # Create open3d point cloud for this instance
+        pcd = o3d.geometry.PointCloud()
+        pcd.points = o3d.utility.Vector3dVector(np.float64(instance_points))
+
+        # Run RANSAC to fit plane model
+        plane_P1, inliers_P1 = pcd.segment_plane(distance_threshold=distance_threshold, ransac_n=ransac_n, num_iterations=num_iterations)
+
+        # remove inliers from pcd
+        pcd = pcd.select_by_index(inliers_P1, invert=True)
+
+        # find a suitable P2
+        while True:
+            plane_P2, inliers_P2 = pcd.segment_plane(distance_threshold=distance_threshold, ransac_n=ransac_n, num_iterations=num_iterations)
+            angle_P1_P2 = np.arccos(np.dot(plane_P1[:3], plane_P2[:3]))
+            if 45 < angle_P1_P2 < 135:
+                break
+            else:
+                print('not suitable P2, trying again')
+                pcd = pcd.select_by_index(inliers_P2, invert=True)
+                if len(pcd.points) < 0.1 * len(instance_points):
+                    print('not enough points left, breaking')
+                    break
+
+        n_P1, d_P1 = np.array(plane_P1[:3], dtype=np.float64), plane_P1[3]
+        n_P2, d_P2 = np.array(plane_P2[:3], dtype=np.float64), plane_P2[3]
+
+        # calculate s2
+        s2 = np.cross(n_P1, n_P2)
+
+        line_point = np.cross((n_P1 * d_P2 - n_P2 * d_P1), s2) / np.linalg.norm(s2) ** 2
+        s2 = s2 / np.linalg.norm(s2)
+
+    # Return feature dictionary
+    return {
+        "s2": s2,
+        "line_point": line_point
+    }
