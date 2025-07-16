@@ -10,7 +10,79 @@ import open3d as o3d
 import plotly.graph_objects as go
 
 from . import viz
-from . import processing
+
+
+class S2Features:
+    """
+    Object-oriented structure for S2 features (segment orientation features).
+    
+    Attributes:
+        s2_vectors (Dict[int, np.ndarray]): Direction vectors for each instance
+        line_points (Dict[int, np.ndarray]): Points on the line for each instance
+        instance_ids (list): List of instance IDs that have S2 features
+    """
+    
+    def __init__(self):
+        """Initialize empty S2 features."""
+        self.s2_vectors = {}
+        self.line_points = {}
+        self.instance_ids = []
+    
+    def add_instance_features(self, instance_id: int, s2: np.ndarray, line_point: np.ndarray) -> None:
+        """
+        Add S2 features for a specific instance.
+        
+        Args:
+            instance_id: The instance identifier
+            s2: Direction vector for the instance
+            line_point: Point on the line for the instance
+        """
+        self.s2_vectors[instance_id] = s2
+        self.line_points[instance_id] = line_point
+        if instance_id not in self.instance_ids:
+            self.instance_ids.append(instance_id)
+    
+    def get_s2_vector(self, instance_id: int) -> np.ndarray:
+        """Get S2 direction vector for a specific instance."""
+        if instance_id not in self.s2_vectors:
+            raise KeyError(f"Instance {instance_id} not found in S2 features")
+        return self.s2_vectors[instance_id]
+    
+    def get_line_point(self, instance_id: int) -> np.ndarray:
+        """Get line point for a specific instance."""
+        if instance_id not in self.line_points:
+            raise KeyError(f"Instance {instance_id} not found in S2 features")
+        return self.line_points[instance_id]
+    
+    def has_instance(self, instance_id: int) -> bool:
+        """Check if S2 features exist for a specific instance."""
+        return instance_id in self.s2_vectors
+    
+    def get_all_instances(self) -> list:
+        """Get list of all instance IDs that have S2 features."""
+        return self.instance_ids.copy()
+    
+    def to_dict(self) -> Dict:
+        """Convert to dictionary format for backward compatibility."""
+        result = {}
+        for instance_id in self.instance_ids:
+            result[instance_id] = {
+                "s2": self.s2_vectors[instance_id],
+                "line_point": self.line_points[instance_id]
+            }
+        return result
+    
+    @classmethod
+    def from_dict(cls, data: Dict) -> "S2Features":
+        """Create S2Features from dictionary format."""
+        s2_features = cls()
+        for instance_id, features in data.items():
+            s2_features.add_instance_features(
+                instance_id, 
+                features["s2"], 
+                features["line_point"]
+            )
+        return s2_features
 
 
 class PointCloud:
@@ -204,6 +276,8 @@ class PointCloud:
         if not self.has_normals:
             raise ValueError("Normals are required to calculate s1 feature")
             
+        from . import processing
+        
         features = processing.calculate_s1(
             self.points, 
             self.normals, 
@@ -240,7 +314,10 @@ class PointCloud:
         
         print('processing instances for s2 calculation')
 
-        instance_features = processing.calculate_s2(
+        from . import processing
+
+        # Use the new object-oriented function
+        s2_features = processing.calculate_s2_object(
             self.points, 
             self.instances,
             distance_threshold=distance_threshold,
@@ -248,13 +325,13 @@ class PointCloud:
             num_iterations=num_iterations            
         )
         
-        # Store instance features
-        self.features["instance_features"] = instance_features
+        # Store S2 features object
+        self.features["s2_features"] = s2_features
 
     @property
     def has_s2_feature(self) -> bool:
         """Check if point cloud has s2 feature computed."""
-        return "instance_features" in self.features
+        return "s2_features" in self.features
 
     def project_to_beam(self, min_points_per_instance: int = 10) -> None:
         """
@@ -270,8 +347,20 @@ class PointCloud:
         if not self.has_s2_feature:
             raise ValueError("S2 features are required for beam projection")
             
-        s2_vectors = self.features["s2"]
-        line_points = self.features["line_point"]
+        from . import processing
+            
+        s2_features = self.features["s2_features"]
+        
+        # Convert S2Features to arrays for processing
+        unique_instances = np.unique(self.instances)
+        s2_vectors = np.zeros((len(self.points), 3))
+        line_points = np.zeros((len(self.points), 3))
+        
+        for instance_id in unique_instances:
+            if s2_features.has_instance(instance_id):
+                instance_mask = self.instances == instance_id
+                s2_vectors[instance_mask] = s2_features.get_s2_vector(instance_id)
+                line_points[instance_mask] = s2_features.get_line_point(instance_id)
         
         # Project points to beam lines
         beam_features = processing.project_to_line(
@@ -322,13 +411,18 @@ class PointCloud:
         if not self.has_s2_feature:
             raise ValueError("S2 features are required for centerline projection")
             
-        instance_features = self.features["instance_features"]
+        from . import processing
+            
+        s2_features = self.features["s2_features"]
+        
+        # Convert S2Features to dictionary for processing
+        instance_features_dict = s2_features.to_dict()
         
         # Project points to centerlines
         centerline_features = processing.project_to_centerline(
             self.points,
             self.instances,
-            instance_features
+            instance_features_dict
         )
         
         # Store centerline features
@@ -357,5 +451,24 @@ class PointCloud:
             distances=self.features["distances"],
             instances=self.instances,
             centerlines=self.features["centerlines"],
+            **kwargs
+        )
+
+    def visualize_projected_points_xy(self, **kwargs) -> go.Figure:
+        """
+        Create a simple 2D scatter plot of projected points in the XY plane.
+        
+        Args:
+            **kwargs: Additional arguments passed to viz.plot_projected_points_xy()
+            
+        Returns:
+            Plotly figure object that can be displayed in notebook or saved to HTML
+        """
+        if not self.has_beam_projection:
+            raise ValueError("Beam projection must be calculated first. Call project_to_beam() before visualization.")
+            
+        return viz.plot_projected_points_xy(
+            projected_points=self.features["projected_points"],
+            instances=self.instances,
             **kwargs
         )
