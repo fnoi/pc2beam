@@ -46,7 +46,7 @@ build/
 
 # Local development settings
 .env
-.env.local
+.env.local 
 
 # macOS system files
 .DS_Store

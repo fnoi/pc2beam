@@ -12,8 +12,8 @@ This package provides tools and utilities for processing point cloud data and co
   - Local neighborhood orientation estimation using supernormal $\vec{s_1}$
   - Segment-level orientation estimation $\vec{s_2}$ and point projection
   - Cross-section fitting using multi-objective optimization from standardized catalog
-- Model reconstruction and export to IFC format
-- Visualization tools for intermediate and final results
+- Model reconstruction
+- Tools for evaluation and interactive visualization intermediate and final results
 
 ## Installation
 
@@ -70,13 +70,17 @@ This project is licensed under the [MIT License](LICENSE).
 If you use this code in your research, please cite our paper:
 
 ```bibtex
-@article{pc2beam2025,
-  title={Automated Steel Structure Model Reconstruction through Point Cloud Instance Segmentation and Parametric Shape Fitting},
-  author={[Authors]},
-  journal={[Journal Name]},
-  year={2025},
-  publisher={[Publisher]},
-  doi={[DOI]},
-  url={https://arxiv.org/abs/2403.XXXXX}
+@article{2025_PC2BEAM,
+   author = {Florian Noichl and Yuandong Pan and André Borrmann},
+   doi = {10.36680/j.itcon.2025.045},
+   issn = {1874-4753},
+   journal = {Journal of Information Technology in Construction},
+   month = {7},
+   pages = {1099-1122},
+   title = {Automated Steel Structure Model Reconstruction through Point Cloud Instance Segmentation and Parametric Shape Fitting},
+   volume = {30},
+   url = {https://itcon.org/paper/2025/45},
+   year = {2025}
 }
+
 ```

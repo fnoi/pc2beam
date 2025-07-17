@@ -94,7 +94,7 @@ class PointCloud:
         normals (Optional[np.ndarray]): Normal vectors of shape (N, 3)
         instances (np.ndarray): Instance labels of shape (N,)
         metadata (dict): Additional information about the point cloud
-        features (dict): Point-wise features including s1
+        features (dict): Point-wise features
     """
     
     def __init__(
