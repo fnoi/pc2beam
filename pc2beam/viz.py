@@ -21,6 +21,7 @@ def plot_point_cloud(
     width: int = 1000,
     height: int = 800,
     max_points: int = 10000,
+    ortho_view: bool = False,
 ) -> go.Figure:
     """
     Create an interactive 3D visualization of point cloud data.
@@ -36,6 +37,7 @@ def plot_point_cloud(
         width: Figure width in pixels
         height: Figure height in pixels
         max_points: Maximum number of points to display
+        ortho_view: If True, use orthographic projection
         
     Returns:
         Plotly figure object that can be displayed in notebook or saved to HTML
@@ -137,17 +139,20 @@ def plot_point_cloud(
         fig.layout.annotations[0].text = f"{enhanced_title} | Normals: {len(points_viz)}"
     
     # Update layout
+    camera = dict(
+        up=dict(x=0, y=0, z=1),
+        center=dict(x=0, y=0, z=0),
+        eye=dict(x=1.5, y=1.5, z=1.5),
+    )
+    if ortho_view:
+        camera["projection"] = dict(type="orthographic")
     fig.update_layout(
         scene=dict(
             aspectmode='data',
             xaxis=dict(visible=False),
             yaxis=dict(visible=False),
             zaxis=dict(visible=False),
-            camera=dict(
-                up=dict(x=0, y=0, z=1),
-                center=dict(x=0, y=0, z=0),
-                eye=dict(x=1.5, y=1.5, z=1.5)
-            )
+            camera=camera
         ),
         width=width,
         height=height,
@@ -170,6 +175,7 @@ def plot_point_cloud_with_supernormals(
     height: int = 800,
     max_points: int = 10000,
     color_by_s1: bool = False,
+    ortho_view: bool = False,
 ) -> go.Figure:
     """
     Create an interactive 3D visualization of point cloud data with supernormal vectors.
@@ -186,6 +192,7 @@ def plot_point_cloud_with_supernormals(
         height: Figure height in pixels
         max_points: Maximum number of points to display
         color_by_s1: Whether to color points by s1 feature value
+        ortho_view: If True, use orthographic projection
         
     Returns:
         Plotly figure object that can be displayed in notebook or saved to HTML
@@ -320,17 +327,20 @@ def plot_point_cloud_with_supernormals(
         fig.layout.annotations[0].text = f"{enhanced_title} | Supernormals: {len(points_viz)}"
     
     # Update layout
+    camera = dict(
+        up=dict(x=0, y=0, z=1),
+        center=dict(x=0, y=0, z=0),
+        eye=dict(x=1.5, y=1.5, z=1.5),
+    )
+    if ortho_view:
+        camera["projection"] = dict(type="orthographic")
     fig.update_layout(
         scene=dict(
             aspectmode='data',
             xaxis=dict(visible=False),
             yaxis=dict(visible=False),
             zaxis=dict(visible=False),
-            camera=dict(
-                up=dict(x=0, y=0, z=1),
-                center=dict(x=0, y=0, z=0),
-                eye=dict(x=1.5, y=1.5, z=1.5)
-            )
+            camera=camera
         ),
         width=width,
         height=height,
@@ -351,6 +361,7 @@ def plot_beam_projection(
     width: int = 1000,
     height: int = 800,
     max_points: int = 10000,
+    ortho_view: bool = False,
 ) -> go.Figure:
     """
     Create an interactive 3D visualization showing original points and their beam projections.
@@ -365,6 +376,7 @@ def plot_beam_projection(
         width: Figure width in pixels
         height: Figure height in pixels
         max_points: Maximum number of points to display
+        ortho_view: If True, use orthographic projection
         
     Returns:
         Plotly figure object that can be displayed in notebook or saved to HTML
@@ -478,17 +490,20 @@ def plot_beam_projection(
         )
     
     # Update layout
+    camera = dict(
+        up=dict(x=0, y=0, z=1),
+        center=dict(x=0, y=0, z=0),
+        eye=dict(x=1.5, y=1.5, z=1.5),
+    )
+    if ortho_view:
+        camera["projection"] = dict(type="orthographic")
     fig.update_layout(
         scene=dict(
             aspectmode='data',
             xaxis=dict(visible=False),
             yaxis=dict(visible=False),
             zaxis=dict(visible=False),
-            camera=dict(
-                up=dict(x=0, y=0, z=1),
-                center=dict(x=0, y=0, z=0),
-                eye=dict(x=1.5, y=1.5, z=1.5)
-            )
+            camera=camera
         ),
         width=width,
         height=height,
@@ -509,6 +524,7 @@ def plot_centerlines(
     width: int = 1000,
     height: int = 800,
     max_points: int = 10000,
+    ortho_view: bool = False,
 ) -> go.Figure:
     """
     Create an interactive 3D visualization showing points and their centerline projections.
@@ -523,6 +539,7 @@ def plot_centerlines(
         width: Figure width in pixels
         height: Figure height in pixels
         max_points: Maximum number of points to display
+        ortho_view: If True, use orthographic projection
         
     Returns:
         Plotly figure object that can be displayed in notebook or saved to HTML
@@ -621,17 +638,20 @@ def plot_centerlines(
         )
     
     # Update layout
+    camera = dict(
+        up=dict(x=0, y=0, z=1),
+        center=dict(x=0, y=0, z=0),
+        eye=dict(x=1.5, y=1.5, z=1.5),
+    )
+    if ortho_view:
+        camera["projection"] = dict(type="orthographic")
     fig.update_layout(
         scene=dict(
             aspectmode='data',
             xaxis=dict(visible=False),
             yaxis=dict(visible=False),
             zaxis=dict(visible=False),
-            camera=dict(
-                up=dict(x=0, y=0, z=1),
-                center=dict(x=0, y=0, z=0),
-                eye=dict(x=1.5, y=1.5, z=1.5)
-            )
+            camera=camera
         ),
         width=width,
         height=height,
