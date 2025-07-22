@@ -17,7 +17,7 @@ This package provides tools and utilities for processing point cloud data and co
 
 ## Demo
 
-You can run the interactive demo in a Google Colab notebook: https://colab.research.google.com/github/fnoi/pc2beam/blob/dev/notebooks/demo.ipynb
+You can run the interactive demo in a Google Colab notebook: https://colab.research.google.com/github/fnoi/pc2beam/blob/main/notebooks/demo.ipynb
 
 ## Installation
 
