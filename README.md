@@ -65,9 +65,7 @@ Example files are provided in the repository:
 
 This project is licensed under the [MIT License](LICENSE).
 
-## Citation
-
-If you use this code in your research, please cite our paper:
+## BibTex
 
 ```bibtex
 @article{2025_PC2BEAM,
@@ -82,5 +80,4 @@ If you use this code in your research, please cite our paper:
    url = {https://itcon.org/paper/2025/45},
    year = {2025}
 }
-
 ```

@@ -1,28 +1,25 @@
-# Default configuration for PC2Beam
+# default configuration for pc2beam
 
-# S1 feature computation parameters
+# s1 computation parameters
 s1:
   radius: 0.25
   k: 30
   use_radius: true
 
-# S2 feature computation parameters
+# s2 estimationparameters
 s2:
   distance_threshold: 0.01
   ransac_n: 3
   num_iterations: 1000
 
-# Visualization parameters
+# visualization parameters
 visualization:
   normal_length: 0.1
   max_points: 10000
-  width: 1000
-  height: 800
+  width: 800
+  height: 600
+  ortho_view: true
 
-# Processing parameters
+# processing parameters
 processing:
   min_points_per_instance: 50
-
-# Centerline parameters
-centerline:
-  # No parameters needed - always requires at least 2 points 
