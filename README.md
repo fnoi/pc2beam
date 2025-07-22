@@ -1,6 +1,6 @@
-# PC2Beam
+# PC2BEAM
 
-A Python package for converting point cloud data to beam models. This package implements the methodology described in the paper ["Automated Steel Structure Model Reconstruction through Point Cloud Instance Segmentation and Parametric Shape Fitting"](https://arxiv.org/abs/2403.XXXXX) (2025, under review).
+A Python package for converting point cloud data to beam models. This package implements the methodology described in the paper ["Automated Steel Structure Model Reconstruction through Point Cloud Instance Segmentation and Parametric Shape Fitting"](https://itcon.org/papers/2025_45-ITcon-Noichl.pdf) (Journal of Information Technology in Construction, 2025).
 
 If you use this code in your academic work, please cite the paper using the citation information provided at the bottom of this README.
 
@@ -14,6 +14,10 @@ This package provides tools and utilities for processing point cloud data and co
   - Cross-section fitting using multi-objective optimization from standardized catalog
 - Model reconstruction
 - Tools for evaluation and interactive visualization intermediate and final results
+
+## Demo
+
+You can run the interactive demo in a Google Colab notebook: https://colab.research.google.com/github/fnoi/pc2beam/blob/dev/notebooks/demo.ipynb
 
 ## Installation
 
