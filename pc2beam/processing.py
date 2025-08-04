@@ -1,7 +1,7 @@
 import numpy as np
 from sklearn.neighbors import KDTree
 import open3d as o3d
-from .data import S2Features
+from .data_legacy import S2Features
 
 def calculate_s1(
     points: np.ndarray, 
@@ -27,6 +27,8 @@ def calculate_s1(
             - sigma2: Second singular values of shape (N,)
             - sigma3: Third singular values of shape (N,)
     """
+
+
     if normals is None:
         raise ValueError("Normals are required to calculate s1 feature")
         
@@ -187,34 +189,6 @@ def calculate_s2(
     # Return instance features dictionary
     return instance_features
 
-
-def calculate_s2_object(
-    points: np.ndarray, 
-    instances: np.ndarray,
-    distance_threshold: float = 0.01, 
-    ransac_n: int = 3, 
-    num_iterations: int = 1000
-) -> S2Features:
-    """
-    Calculate segment orientation feature s2 for each cluster.
-    
-    Args:
-        points: Point coordinates of shape (N, 3)
-        instances: Instance labels of shape (N,)
-        distance_threshold: Maximum distance a point can be from the plane model
-        ransac_n: Number of points to randomly sample for each RANSAC iteration
-        num_iterations: Number of RANSAC iterations
-        
-    Returns:
-        s2_features: S2Features object containing instance-level features
-    """
-    # Get dictionary result from original function
-    instance_features_dict = calculate_s2(
-        points, instances, distance_threshold, ransac_n, num_iterations
-    )
-    
-    # Convert to S2Features object
-    return S2Features.from_dict(instance_features_dict)
 
 def project_to_line(
     points: np.ndarray,

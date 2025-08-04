@@ -5,7 +5,7 @@ Main entry point for PC2Beam (function-based, no CLI parsing).
 import numpy as np
 from pathlib import Path
 from pc2beam import config_io
-from pc2beam.data import PointCloud
+from pc2beam.data_legacy import PointCloud
 
 
 def run_pc2beam(
@@ -87,3 +87,11 @@ def run_pc2beam(
             print(f"S1 visualization saved to {s1_viz_file}")
         print("Processing completed successfully")
     return point_cloud
+
+if __name__ == "__main__":
+    run_pc2beam(
+        input_file="data/test_points.txt",
+        config_path="config/default.yaml",
+        entry="instance",
+        debug=True
+    )
