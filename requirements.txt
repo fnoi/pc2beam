@@ -1,9 +1,6 @@
 numpy>=1.24.0
-open3d>=0.17.0  # For point cloud processing
-plotly>=5.18.0  # For interactive visualization
-scikit-learn>=1.3.0  # For KDTree and machine learning utilities
-omegaconf>=2.3.0  # For configuration management
-matplotlib>=3.7.0  # For color generation in visualization
-
-# Development and testing
-pytest>=7.4.0
+open3d>=0.17.0  # point cloud processing
+plotly>=5.18.0  # interactive visualization
+scikit-learn>=1.3.0  # KDTree spatial indexing
+omegaconf>=2.3.0  # configuration management
+matplotlib>=3.7.0  # color generation in visualization

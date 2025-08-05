@@ -115,7 +115,6 @@ class PointCloud:
         if data.shape[1] == 7:
             return cls(data[:, :3], data[:, 3:6], data[:, 6])
         elif data.shape[1] == 4:
-            return cls(data[:, :3], instances=data[:, 3])
             raise ValueError("Invalid file format")
     
     def visualize(self, **kwargs) -> go.Figure:
@@ -157,13 +156,8 @@ class PointCloud:
         if not self.has_instances:
             raise ValueError("Instances required")
         from . import processing
-        self.features["s2_features"] = processing.calculate_s2_object(
-            self.points, 
-            self.instances,
-            distance_threshold=distance_threshold,
-            ransac_n=ransac_n,
-            num_iterations=num_iterations            
-        )
+        # implement s2 estimation here
+        
 
     @property
     def has_s2_feature(self):

@@ -31,6 +31,8 @@ class PointCloud:
     
     def from_txt(self, path: str):
         points = np.loadtxt(path)
+        # initiate and check properties
+        
         return PointCloud(points)
     
     def compute_normals(self, radius=None, k=30, orientation_reference=None):

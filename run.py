@@ -94,4 +94,4 @@ if __name__ == "__main__":
         config_path="config/default.yaml",
         entry="instance",
         debug=True
-    )
+    ) 
