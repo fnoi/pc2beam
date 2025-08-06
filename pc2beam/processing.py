@@ -1,7 +1,7 @@
 import numpy as np
 from sklearn.neighbors import KDTree
 import open3d as o3d
-from .data_legacy import S2Features
+from tqdm import tqdm
 
 def calculate_s1(
     points: np.ndarray, 
@@ -85,9 +85,9 @@ def calculate_s1(
     
     return {
         "s1": s1,
-        "sigma1": sigma1,
-        "sigma2": sigma2,
-        "sigma3": sigma3
+        "s1_sigma1": sigma1,
+        "s1_sigma2": sigma2,
+        "s1_sigma3": sigma3
     }
 
 
@@ -154,21 +154,21 @@ def calculate_s2(
         # Run RANSAC to fit plane model
         plane_P1, inliers_P1 = pcd.segment_plane(distance_threshold=distance_threshold, ransac_n=ransac_n, num_iterations=num_iterations)
 
-        # remove inliers from pcd
+        # remove inliers from pcd by inverse selection
         pcd = pcd.select_by_index(inliers_P1, invert=True)
 
         # find a suitable P2
         while True:
             plane_P2, inliers_P2 = pcd.segment_plane(distance_threshold=distance_threshold, ransac_n=ransac_n, num_iterations=num_iterations)
             angle_P1_P2 = np.rad2deg(np.arccos(np.dot(plane_P1[:3], plane_P2[:3])))
-            print(f'angle_P1_P2: {angle_P1_P2}')
+            print(f'(instance {instance_id+1}/{len(unique_instances)}) angle_P1_P2: {angle_P1_P2:.2f}')
             if 45 < angle_P1_P2 < 135:
                 break
             else:
-                print('not suitable P2, trying again')
+                print('P2 candidate not suitable, trying again')
                 pcd = pcd.select_by_index(inliers_P2, invert=True)
                 if len(pcd.points) < 0.1 * len(instance_points):
-                    print('not enough points left, breaking')
+                    print('not enough points left, breaking (consider increasing distance_threshold)')
                     break
 
         n_P1, d_P1 = np.array(plane_P1[:3], dtype=np.float64), plane_P1[3]
@@ -182,8 +182,8 @@ def calculate_s2(
         
         # Store features for this instance
         instance_features[instance_id] = {
-            "s2": s2,
-            "line_point": line_point
+            "s2_vector": s2,
+            "s2_point": line_point
         }
 
     # Return instance features dictionary
@@ -286,6 +286,14 @@ def project_to_line(
         "distances": distances,
         "instance_info": instance_info
     }
+
+def project_points_to_line(points, s2_vector, s2_point):
+    """projects points to a line and returns endpoints of line segment containing all projected points"""
+    direction = s2_vector / np.linalg.norm(s2_vector)
+    t = np.dot(points - s2_point, direction)
+    projections = s2_point + t[:, np.newaxis] * direction
+    return projections[np.argmin(t)], projections[np.argmax(t)]
+
 
 def project_to_centerline(
     points: np.ndarray,

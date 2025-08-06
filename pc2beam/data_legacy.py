@@ -51,71 +51,8 @@ class S2Features:
             s2f.add_instance_features(i, f["s2"], f["line_point"])
         return s2f
 
-
 class PointCloud:
-    """Point cloud with coordinates, normals, instances, and features."""
-    
-    def __init__(self, points: np.ndarray, normals: Optional[np.ndarray] = None,
-                 instances: Optional[np.ndarray] = None):
-        self.points = self._validate(points, (None, 3), np.float32)
-        self.normals = (
-            self._validate(normals, self.points.shape, np.float32, True)
-            if normals is not None else None
-        )
-        self.instances = (
-            self._validate(instances, (self.points.shape[0],), np.int32, True)
-            if instances is not None else None
-        )
-        self.metadata = {}
-        self.features = {}
-        
-    def _validate(self, arr, shape, dtype, flatten=False):
-        if arr is None:
-            return None
-        arr = np.asarray(arr)
-        if shape[0] is not None and arr.shape[0] != shape[0]:
-            raise ValueError("Shape mismatch")
-        if len(shape) > 1 and arr.shape[1:] != shape[1:]:
-            raise ValueError("Shape mismatch")
-        arr = arr.astype(dtype)
-        if flatten:
-            arr = arr.reshape(shape)
-        return arr
-    
-    @property
-    def has_normals(self):
-        return self.normals is not None
-    
-    @property
-    def has_instances(self):
-        return self.instances is not None
-    
-    @property
-    def size(self):
-        return len(self.points)
-    
-    def compute_normals(self, radius=None, k=30, orientation_reference=None):
-        pcd = o3d.geometry.PointCloud()
-        pcd.points = o3d.utility.Vector3dVector(self.points)
-        if radius:
-            pcd.estimate_normals(
-                search_param=o3d.geometry.KDTreeSearchParamRadius(radius=radius)
-            )
-        else:
-            pcd.estimate_normals(
-                search_param=o3d.geometry.KDTreeSearchParamKNN(knn=k)
-            )
-        if orientation_reference is not None:
-            pcd.orient_normals_towards_points(orientation_reference.reshape(-1, 3))
-        self.normals = np.asarray(pcd.normals).astype(np.float32)
-    
-    @classmethod
-    def from_txt(cls, path: Union[str, Path]) -> "PointCloud":
-        data = np.loadtxt(path)
-        if data.shape[1] == 7:
-            return cls(data[:, :3], data[:, 3:6], data[:, 6])
-        elif data.shape[1] == 4:
-            raise ValueError("Invalid file format")
+
     
     def visualize(self, **kwargs) -> go.Figure:
         return viz.plot_point_cloud(
@@ -137,31 +74,6 @@ class PointCloud:
     
     def save_html(self, path: Union[str, Path], **kwargs):
         viz.save_html(self.visualize(**kwargs), path)
-
-    def calculate_s1(self, radius=0.1, k=30, use_radius=True):
-        if not self.has_normals:
-            raise ValueError("Normals required")
-        from . import processing
-        self.features.update(
-            processing.calculate_s1(
-                self.points, self.normals, radius=radius, k=k, use_radius=use_radius
-        )
-        )
-
-    @property
-    def has_s1_feature(self):
-        return "s1" in self.features
-
-    def calculate_s2(self, distance_threshold=0.01, ransac_n=3, num_iterations=1000):
-        if not self.has_instances:
-            raise ValueError("Instances required")
-        from . import processing
-        # implement s2 estimation here
-        
-
-    @property
-    def has_s2_feature(self):
-        return "s2_features" in self.features
 
     def project_to_beam(self, min_points_per_instance=10):
         if not self.has_instances or not self.has_s2_feature:

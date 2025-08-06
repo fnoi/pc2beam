@@ -5,14 +5,13 @@ Main entry point for PC2Beam (function-based, no CLI parsing).
 import numpy as np
 from pathlib import Path
 from pc2beam import config_io
-from pc2beam.data_legacy import PointCloud
+from pc2beam.data import PointCloud, Skeleton
 
 
 def run_pc2beam(
     input_file,
     config_path="config/default.yaml",
-    entry="instance",
-    debug=False
+    entry="instance"
 ):
     # Load configuration
     if not Path(config_path).exists():
@@ -47,7 +46,7 @@ def run_pc2beam(
         use_radius = True
         print(f"Using default s1 parameters: radius={radius}, k={k}, use_radius={use_radius}")
 
-    point_cloud.calculate_s1(radius=radius, k=k, use_radius=use_radius)
+    point_cloud.compute_s1(radius=radius, k=k, use_radius=use_radius)
     print("s1 features computed successfully")
 
     # Run s2 processing with configuration parameters
@@ -62,36 +61,30 @@ def run_pc2beam(
         num_iterations = 1000
         print(f"Using default s2 parameters: distance_threshold={distance_threshold}, ransac_n={ransac_n}, num_iterations={num_iterations}")
 
-    point_cloud.calculate_s2(
+    point_cloud.compute_s2(
         distance_threshold=distance_threshold,
         ransac_n=ransac_n,
         num_iterations=num_iterations
     )
     print("s2 features computed successfully")
 
-    # Generate visualization if in debug mode
-    if debug:
-        import os
-        os.makedirs("output", exist_ok=True)
-        input_filename = Path(input_file).stem
-        print("Generating point cloud visualization...")
-        viz_file = f"output/{input_filename}_pointcloud.html"
-        point_cloud.save_html(viz_file)
-        print(f"Visualization saved to {viz_file}")
-        if point_cloud.has_s1_feature:
-            print("Generating S1 feature visualization...")
-            s1_viz_file = f"output/{input_filename}_s1.html"
-            fig = point_cloud.visualize_with_supernormals(normal_length=0.15)
-            from pc2beam.viz import save_html
-            save_html(fig, s1_viz_file)
-            print(f"S1 visualization saved to {s1_viz_file}")
-        print("Processing completed successfully")
-    return point_cloud
+    skeleton = point_cloud.to_skeleton()
+    print("skeleton initiated")
+
+
+
+    # roadmap:
+    # 1. project points to line
+    # 2. extend to merge
+    # 3. project points to plane
+    # 4. polygon setup and fitting
+    # 5. model reconstruction
+    # 6. evaluation
+
 
 if __name__ == "__main__":
     run_pc2beam(
         input_file="data/test_points.txt",
         config_path="config/default.yaml",
-        entry="instance",
-        debug=True
-    ) 
+        entry="instance"
+    )

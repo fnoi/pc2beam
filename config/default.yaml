@@ -8,7 +8,7 @@ s1:
 
 # s2 estimationparameters
 s2:
-  distance_threshold: 0.01
+  distance_threshold: 0.02
   ransac_n: 3
   num_iterations: 1000
 
