@@ -71,10 +71,10 @@ def run_pc2beam(
     skeleton = point_cloud.to_skeleton()
     print("skeleton initiated")
 
-
+    skeleton.visualize()
+    skeleton.visualize_with_points(point_cloud)
 
     # roadmap:
-    # 1. project points to line
     # 2. extend to merge
     # 3. project points to plane
     # 4. polygon setup and fitting

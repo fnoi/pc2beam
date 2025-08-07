@@ -6,8 +6,7 @@ import numpy as np
 import open3d as o3d
 from typing import Optional, Union
 from pathlib import Path
-from . import processing
-
+from . import processing, viz
 
 class PointCloud:
     """Point cloud data structure."""
@@ -133,4 +132,15 @@ class Skeleton:
     def add_line(self, id: int, start: np.ndarray, end: np.ndarray):
         self.lines.append({id: [start, end]})
         return self
+    
+    def visualize(self):
+        from . import viz
+        fig = viz.plot_skeleton(self)
+        fig.show()
+    
+    def visualize_with_points(self, point_cloud):
+        """Visualize skeleton together with point cloud instances."""
+        from . import viz
+        fig = viz.plot_skeleton_with_points(point_cloud.points, point_cloud.instances, self)
+        fig.show()
     

@@ -10,6 +10,7 @@ import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 
 
+
 def plot_point_cloud(
     points: np.ndarray,
     normals: Optional[np.ndarray] = None,
@@ -201,3 +202,120 @@ def _generate_colors(n: int) -> list:
         colors.append(f'rgb({int(rgb[0]*255)},{int(rgb[1]*255)},{int(rgb[2]*255)})')
     
     return colors 
+
+
+def plot_skeleton_with_points(points: np.ndarray, instances: np.ndarray, skeleton: "Skeleton", 
+                            title: str = "Skeleton with Point Cloud", 
+                            width: int = 1000, height: int = 800):
+    """Plot skeleton lines together with point cloud instances."""
+    fig = go.Figure()
+    
+    # Add point cloud traces by instance
+    unique_instances = np.unique(instances)
+    colors = _generate_colors(len(unique_instances))
+    color_map = dict(zip(unique_instances, colors))
+    
+    for instance_id in unique_instances:
+        mask = instances == instance_id
+        instance_points = points[mask]
+        
+        fig.add_trace(go.Scatter3d(
+            x=instance_points[:, 0],
+            y=instance_points[:, 1], 
+            z=instance_points[:, 2],
+            mode="markers",
+            marker=dict(
+                size=2,
+                color=color_map[instance_id],
+                opacity=0.7
+            ),
+            name=f"Instance {instance_id}",
+            hoverinfo="none"
+        ))
+    
+    # Add skeleton lines
+    for line in skeleton.lines:
+        for line_id, (start, end) in line.items():
+            fig.add_trace(go.Scatter3d(
+                x=[start[0], end[0]], 
+                y=[start[1], end[1]], 
+                z=[start[2], end[2]], 
+                mode='lines',
+                line=dict(color='red', width=4),
+                name=f"Skeleton Line {line_id}",
+                showlegend=True
+            ))
+    
+    # Calculate extents for equal scaling
+    all_x = points[:, 0].tolist()
+    all_y = points[:, 1].tolist()
+    all_z = points[:, 2].tolist()
+    
+    # Add skeleton line endpoints to extents calculation
+    for line in skeleton.lines:
+        for line_id, (start, end) in line.items():
+            all_x.extend([start[0], end[0]])
+            all_y.extend([start[1], end[1]])
+            all_z.extend([start[2], end[2]])
+    
+    x_min, x_max = min(all_x), max(all_x)
+    y_min, y_max = min(all_y), max(all_y)
+    z_min, z_max = min(all_z), max(all_z)
+    
+    # Calculate the maximum range to ensure equal scaling
+    max_range = max(x_max - x_min, y_max - y_min, z_max - z_min)
+    
+    # Center the ranges
+    x_center = (x_min + x_max) / 2
+    y_center = (y_min + y_max) / 2
+    z_center = (z_min + z_max) / 2
+    
+    # Set equal ranges for all axes
+    x_range = [x_center - max_range/2, x_center + max_range/2]
+    y_range = [y_center - max_range/2, y_center + max_range/2]
+    z_range = [z_center - max_range/2, z_center + max_range/2]
+    
+    # Set layout with equal aspect ratio
+    fig.update_layout(
+        title=title,
+        scene=dict(
+            xaxis=dict(range=x_range, visible=False),
+            yaxis=dict(range=y_range, visible=False),
+            zaxis=dict(range=z_range, visible=False),
+            aspectmode='manual',
+            aspectratio=dict(x=1, y=1, z=1)
+        ),
+        width=width,
+        height=height,
+        showlegend=True
+    )
+    
+    return fig
+
+
+def plot_skeleton(skeleton: "Skeleton"):
+    """Plot skeleton."""
+    fig = go.Figure()
+    for line in skeleton.lines:
+        for line_id, (start, end) in line.items():
+            fig.add_trace(go.Scatter3d(
+                x=[start[0], end[0]], 
+                y=[start[1], end[1]], 
+                z=[start[2], end[2]], 
+                mode='lines',
+                name=f"Line {line_id}"
+            ))
+    
+    # Set equal aspect ratio for all axes
+    fig.update_layout(
+        scene=dict(
+            aspectmode='cube',  # This ensures equal scale in all axes
+            xaxis=dict(visible=False),
+            yaxis=dict(visible=False),
+            zaxis=dict(visible=False)
+        ),
+        width=800,
+        height=600
+    )
+    
+    return fig
