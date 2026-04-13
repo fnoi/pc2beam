@@ -27,6 +27,8 @@ def plot_point_cloud(
     max_points: int = 10000,
     ortho_view: bool = False,
     point_size: int = 2,
+    show_normals: Optional[bool] = None,
+    normal_length: Optional[float] = None,
 ) -> go.Figure:
     """
     Unified function for point cloud visualization with various modes.
@@ -48,10 +50,18 @@ def plot_point_cloud(
         max_points: Maximum number of points to display
         ortho_view: If True, use orthographic projection
         point_size: Size of points in the visualization
+        show_normals: Backward-compatible alias for show_vectors
+        normal_length: Backward-compatible alias for vector_length
         
     Returns:
         Plotly figure object
     """
+    # Backward-compatible argument aliases used by notebooks/older code.
+    if show_normals is not None:
+        show_vectors = show_normals
+    if normal_length is not None:
+        vector_length = normal_length
+
     # Validate inputs based on mode
     if mode == "supernormals" and (features is None or 's1' not in features):
         raise ValueError("S1 feature required for supernormals mode")

@@ -10,6 +10,7 @@ dependencies:
   - omegaconf
   - matplotlib
   - tqdm
+  - ipykernel
   - pip
   - pip:
       - -e .
