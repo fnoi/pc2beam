@@ -20,10 +20,12 @@ wheels/
 .installed.cfg
 *.egg
 
-# Virtual Environment
+# Local Python environments
 venv_pc2beam/
+.venv/
 env/
 ENV/
+/.conda/
 
 # IDE
 .idea/

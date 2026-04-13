@@ -27,23 +27,22 @@ git clone https://github.com/yourusername/pc2beam.git
 cd pc2beam
 ```
 
-2. Create a virtual environment (recommended):
-
-For Linux and MacOS:
+2. Create and activate the Conda environment (recommended):
 ```bash
-python -m venv venv_pc2beam
-source venv_pc2beam/bin/activate
+conda env create -f environment.yml
+conda activate pc2beam
 ```
 
-For Windows:
-```cmd
-python -m venv venv_pc2beam
-venv_pc2beam\Scripts\activate
+3. Install the package in editable mode (already included in `environment.yml`):
+```bash
+pip install -e .
 ```
 
-3. Install dependencies:
+If dependency resolution fails for `open3d` on your platform with Python 3.12, create the environment with Python 3.11 instead:
 ```bash
-pip install -r requirements.txt
+conda create -n pc2beam python=3.11 numpy open3d plotly scikit-learn omegaconf matplotlib tqdm pip -c conda-forge
+conda activate pc2beam
+pip install -e .
 ```
 
 ## Usage

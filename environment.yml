@@ -1,0 +1,15 @@
+name: pc2beam
+channels:
+  - conda-forge
+dependencies:
+  - python=3.12
+  - numpy
+  - open3d
+  - plotly
+  - scikit-learn
+  - omegaconf
+  - matplotlib
+  - tqdm
+  - pip
+  - pip:
+      - -e .
