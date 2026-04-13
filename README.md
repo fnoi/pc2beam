@@ -23,22 +23,28 @@ You can run the interactive demo in a Google Colab notebook: https://colab.resea
 
 1. Clone the repository:
 ```bash
-git clone https://github.com/yourusername/pc2beam.git
+git clone https://github.com/fnoi/pc2beam.git
 cd pc2beam
 ```
 
-2. Create and activate the Conda environment (recommended):
+2. Create the Conda environment (Python 3.12):
 ```bash
 conda env create -f environment.yml
+```
+
+3. Activate the environment:
+```bash
 conda activate pc2beam
 ```
 
-3. Install the package in editable mode (already included in `environment.yml`):
+4. Verify the installation:
 ```bash
-pip install -e .
+python -c "import open3d, numpy, plotly, sklearn, omegaconf, matplotlib, tqdm; print('pc2beam env ready')"
 ```
 
-If dependency resolution fails for `open3d` on your platform with Python 3.12, create the environment with Python 3.11 instead:
+Notes:
+- `environment.yml` already installs `pc2beam` in editable mode via `pip -e .`; no extra install step is required.
+- If dependency resolution fails for `open3d` on your platform with Python 3.12, use Python 3.11 instead:
 ```bash
 conda create -n pc2beam python=3.11 numpy open3d plotly scikit-learn omegaconf matplotlib tqdm pip -c conda-forge
 conda activate pc2beam
