@@ -10,6 +10,8 @@ from typing import Any, Dict, Optional, Sequence, Union
 
 from omegaconf import DictConfig, OmegaConf
 
+from pc2beam.ifc_ground_truth import write_ifc_beam_ground_truth_yaml
+from pc2beam.helios_to_pc2beam import export_helios_sim_to_pc2beam_txt
 from pc2beam.helios_runner import resolve_helios_data_root, run_helios
 from pc2beam.helios_survey import load_scanners_config, write_scene_xml, write_survey_xml
 from pc2beam.ifc_mesh_export import export_ifc_scene_obj_mtl, save_sidecar
@@ -38,8 +40,11 @@ def run_ifc_helios_pipeline(
         Paths and metadata: ``run_dir``, ``survey_xml``, ``scene_obj``, ``scene_mtl``,
         ``scene_sidecar_yaml``, ``beams_obj`` (merged mesh path, or ``None`` when
         ``helios_one_obj_per_instance`` is True), ``instances_dir`` when split,
-        ``sidecar_yaml`` (alias of ``scene_sidecar_yaml``), ``sim_output_dir``,
-        ``helios_data`` (``None`` when ``run_simulation`` is ``False``),
+        ``sidecar_yaml`` (alias of ``scene_sidecar_yaml``), ``ground_truth_yaml``
+        (written under ``<run_dir>/pc2beam_input/<ifc_stem>_gt.yaml``; each beam
+        stores ``start``/``end`` XYZ endpoints and ``beam_type``), ``sim_output_dir``,
+        ``pc2beam_input_txt`` (generated when simulator runs), ``helios_data``
+        (``None`` when ``run_simulation`` is ``False``),
         ``completed_process`` / ``returncode`` when the simulator runs.
     """
     ifc_path = Path(ifc_path)
@@ -51,10 +56,12 @@ def run_ifc_helios_pipeline(
     scenes = data_dir / "scenes"
     surveys = run_dir / "surveys"
     sim_out = run_dir / "sim_output"
+    pc2beam_input_dir = run_dir / "pc2beam_input"
 
     sceneparts.mkdir(parents=True, exist_ok=True)
     scenes.mkdir(parents=True, exist_ok=True)
     surveys.mkdir(parents=True, exist_ok=True)
+    pc2beam_input_dir.mkdir(parents=True, exist_ok=True)
 
     obj_path = sceneparts / "scene.obj"
     mtl_path = sceneparts / "scene.mtl"
@@ -70,6 +77,10 @@ def run_ifc_helios_pipeline(
         angular_tolerance=mesher_angular_deflection_deg,
     )
     save_sidecar(sidecar, sidecar_path)
+    ground_truth_yaml = write_ifc_beam_ground_truth_yaml(
+        ifc_path,
+        output_yaml=pc2beam_input_dir / f"{ifc_path.stem}_gt.yaml",
+    )
 
     scene_xml = scenes / "pc2beam_scene.xml"
     if helios_one_obj_per_instance:
@@ -101,9 +112,12 @@ def run_ifc_helios_pipeline(
         "beams_obj": None if helios_one_obj_per_instance else obj_path.resolve(),
         "beams_mtl": None if helios_one_obj_per_instance else mtl_path.resolve(),
         "sidecar_yaml": sidecar_path.resolve(),
+        "ground_truth_yaml": ground_truth_yaml,
         "scene_xml": scene_xml.resolve(),
         "survey_xml": survey_xml.resolve(),
         "sim_output_dir": sim_out.resolve(),
+        "pc2beam_input_txt": None,
+        "pc2beam_input_summary": None,
         "helios_data": None,
         "sidecar": sidecar,
         "scan_config": scan_cfg,
@@ -114,6 +128,15 @@ def run_ifc_helios_pipeline(
         result["helios_data"] = helios_data
         extra = list(helios_extra_args) if helios_extra_args else None
         cp = run_helios(survey_xml, helios_data, run_dir, sim_out, extra_args=extra)
+        pc2beam_txt = pc2beam_input_dir / "points_with_normals_instances.txt"
+        input_summary = export_helios_sim_to_pc2beam_txt(
+            sim_output_dir=sim_out,
+            sidecar=sidecar,
+            output_txt_path=pc2beam_txt,
+            background_label=-1,
+        )
+        result["pc2beam_input_txt"] = input_summary["output_txt"]
+        result["pc2beam_input_summary"] = input_summary
         result["completed_process"] = cp
         result["returncode"] = cp.returncode
     else:

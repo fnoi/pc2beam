@@ -78,23 +78,43 @@ Example files are provided in the repository:
   - `model_0_z_up.ifc`: Sample IFC4 structural model for the HELIOS++ workflow
 - Interactive tutorial in `./notebooks/`:
   - `demo.ipynb`: Step-by-step demonstration of the package functionality
-  - `simulation_demo.ipynb`: IFC tessellation, HELIOS++ survey generation, and optional simulated TLS output
+  - `simulation_demo.ipynb`: compatibility copy of the HELIOS simulation notebook
+- HELIOS generation docs and canonical assets in `./tools/helios_generation/`:
+  - `README.md`: dedicated workflow documentation
+  - `notebooks/simulation_demo.ipynb`: canonical HELIOS simulation notebook
 
 ## IFC models and HELIOS++ laser scanning
 
-The repository includes `data/model_0_z_up.ifc` (IFC4 steel frame). The package can tessellate **IfcBeam** geometry to Wavefront OBJ/MTL (one material per profile/material combination), write HELIOS++ scene and survey XML, and drive the external **`helios`** simulator.
+The HELIOS synthetic data-generation workflow has a dedicated home in:
 
-1. Use the Conda environment above — **`helios` is already pinned** in `environment.yml`. To add HELIOS to another env: `conda install -c conda-forge helios=2.1.0` (match the pin when possible).
-2. Stock HELIOS assets (platforms, scanners, …): conda-forge often ships them under **`$CONDA_PREFIX/share/helios`** or inside the **`pyhelios`** package (`…/site-packages/pyhelios/`). `pc2beam` resolves this automatically when possible. Set **`HELIOS_DATA_PATH`** only if you use a custom HELIOS data checkout (directory whose `data/` tree contains `platforms.xml`).
-3. Check the installation:
-   ```bash
-   helios --test
-   ```
-4. Edit `config/scanners_example.yaml` for scanner standpoints and sweep parameters, then run:
-   ```bash
-   python run_helios_simulation.py
-   ```
-   or follow `notebooks/simulation_demo.ipynb`. Outputs are written under `output/helios_pc2beam/<run_id>/` (ignored by git when under `output/`).
+- [`tools/helios_generation/README.md`](tools/helios_generation/README.md)
+
+Use those docs for setup, controlled generation knobs, artifact semantics,
+`hitObjectId` mapping, and reproducibility guidance.
+
+Primary entry assets:
+
+- Script: [`tools/helios_generation/run_helios_simulation.py`](tools/helios_generation/run_helios_simulation.py)
+- Notebook: [`tools/helios_generation/notebooks/simulation_demo.ipynb`](tools/helios_generation/notebooks/simulation_demo.ipynb)
+- Scanner config: [`tools/helios_generation/config/scanners_example.yaml`](tools/helios_generation/config/scanners_example.yaml)
+
+When the IFC pipeline runs, it also auto-generates per-beam ground truth into
+the run output as
+`output/helios_pc2beam/<run_id>/pc2beam_input/<ifc_stem>_gt.yaml`.
+For the sample IFC this is `model_0_z_up_gt.yaml`. The file contains per-beam
+line endpoints as `start: [x, y, z]`, `end: [x, y, z]`, plus `beam_type`.
+
+When HELIOS simulation is enabled, the pipeline additionally writes a
+demo-compatible input TXT at
+`output/helios_pc2beam/<run_id>/pc2beam_input/points_with_normals_instances.txt`
+with columns: `x y z nx ny nz instance_id`. This can be used directly with
+`PointCloud.from_txt(...)` as in `notebooks/demo.ipynb`.
+
+Compatibility paths remain available:
+
+- `run_helios_simulation.py`
+- `notebooks/simulation_demo.ipynb`
+- `config/scanners_example.yaml`
 
 ## License
 

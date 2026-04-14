@@ -1,5 +1,3 @@
-# Compatibility copy.
-# Canonical path: tools/helios_generation/config/scanners_example.yaml
 # Scanner placements for HELIOS++ TLS-style legs (dummy layout).
 # Coordinates are metres in the same world frame as the IFC (see data/model_0_z_up.ifc).
 # attitude_deg: intrinsic yaw / pitch / roll in degrees (Z then Y then X, extrinsic order
