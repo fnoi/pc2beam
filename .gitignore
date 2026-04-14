@@ -60,4 +60,7 @@ ehthumbs.db
 Thumbs.db
 
 # Output files
-output/ 
+output/
+
+# HELIOS++ scene cache
+*.scene

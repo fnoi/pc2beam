@@ -10,6 +10,9 @@ dependencies:
   - omegaconf
   - matplotlib
   - tqdm
+  - ifcopenshell=0.8.3.post1
+  - helios=2.1.0
+  - laspy
   - ipykernel
   - pip
   - pip:

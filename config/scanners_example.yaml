@@ -1,0 +1,38 @@
+# Scanner placements for HELIOS++ TLS-style legs (dummy layout).
+# Coordinates are metres in the same world frame as the IFC (see data/model_0_z_up.ifc).
+# attitude_deg: intrinsic yaw / pitch / roll in degrees (Z then Y then X, extrinsic order
+# used only for notebook visualization of view direction; HELIOS++ legs below use platform x,y,z
+# and scanner head sweep parameters from the stock tripod + panoscanner definitions).
+
+coordinate_system: z_up
+
+helios:
+  # References files under HELIOS++ data root (e.g. $CONDA_PREFIX/share/helios).
+  platform_ref: data/platforms.xml#tripod
+  scanner_ref: data/scanners_tls.xml#panoscanner
+  pulse_freq_hz: 100000
+  scan_freq_hz: 100
+  head_rotate_per_sec_deg: 10.0
+  head_rotate_start_deg: -180.0
+  head_rotate_stop_deg: 180.0
+
+scanners:
+  - id: scan_north
+    position: [0.0, 12.0, 1.5]
+    attitude_deg:
+      yaw: 0.0
+      pitch: 0.0
+      roll: 0.0
+    head_rotate_start_deg: -180.0
+    head_rotate_stop_deg: 180.0
+    head_rotate_per_sec_deg: 10.0
+
+  - id: scan_south_west
+    position: [-8.0, 4.0, 1.5]
+    attitude_deg:
+      yaw: 55.0
+      pitch: -5.0
+      roll: 0.0
+    head_rotate_start_deg: -120.0
+    head_rotate_stop_deg: 120.0
+    head_rotate_per_sec_deg: 12.0
