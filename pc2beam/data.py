@@ -86,12 +86,32 @@ class PointCloud:
         self.features["s1"] = s1
         return self
     
-    def compute_s2(self, distance_threshold=0.01, ransac_n=3, num_iterations=1000):
-        s2 = processing.calculate_s2(self.points, self.instances, distance_threshold, ransac_n, num_iterations)
+    def compute_s2(
+        self,
+        distance_threshold=0.01,
+        ransac_n=3,
+        num_iterations=1000,
+        **kwargs,
+    ):
+        s2 = processing.calculate_s2(
+            self.points,
+            self.instances,
+            distance_threshold,
+            ransac_n,
+            num_iterations,
+            **kwargs,
+        )
         self.features["s2"] = s2
         return self 
     
-    def visualize(self, mode="points", **kwargs):
+    def visualize(
+        self,
+        mode="points",
+        downsample_enabled: bool = True,
+        downsample_max_points: int = 20000,
+        downsample_seed: int = 42,
+        **kwargs,
+    ):
         """Visualize point cloud with various modes."""
         if mode == "supernormals" and "s1" in self.features:
             return viz.plot_point_cloud(
@@ -99,6 +119,9 @@ class PointCloud:
                 features=self.features,
                 instances=self.instances,
                 mode=mode,
+                downsample_enabled=downsample_enabled,
+                downsample_max_points=downsample_max_points,
+                downsample_seed=downsample_seed,
                 **kwargs
             )
         else:
@@ -107,16 +130,24 @@ class PointCloud:
                 self.normals, 
                 self.instances,
                 mode=mode,
+                downsample_enabled=downsample_enabled,
+                downsample_max_points=downsample_max_points,
+                downsample_seed=downsample_seed,
                 **kwargs
             )
         
     def to_skeleton(self):
         skeleton = Skeleton()
         for instance in np.unique(self.instances):
+            feature = self.features["s2"].get(instance)
+            if feature is None:
+                continue
+            if feature.get("s2_vector") is None or feature.get("s2_point") is None:
+                continue
             projected_points = processing.project_points_to_line(
                 self.points[self.instances == instance],
-                self.features["s2"][instance]["s2_vector"],
-                self.features["s2"][instance]["s2_point"]
+                feature["s2_vector"],
+                feature["s2_point"]
                 )
             skeleton.add_line(instance, projected_points[0], projected_points[1])
         return skeleton

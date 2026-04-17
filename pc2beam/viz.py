@@ -24,7 +24,10 @@ def plot_point_cloud(
     title: str = "Point Cloud Visualization",
     width: int = 1000,
     height: int = 800,
-    max_points: int = 10000,
+    max_points: Optional[int] = None,
+    downsample_enabled: bool = True,
+    downsample_max_points: int = 20000,
+    downsample_seed: int = 42,
     ortho_view: bool = False,
     point_size: int = 2,
     show_normals: Optional[bool] = None,
@@ -48,7 +51,10 @@ def plot_point_cloud(
         title: Plot title
         width: Figure width in pixels
         height: Figure height in pixels
-        max_points: Maximum number of points to display
+        max_points: Backward-compatible alias for downsample_max_points
+        downsample_enabled: Whether to downsample dense clouds
+        downsample_max_points: Maximum number of points to display when downsampling
+        downsample_seed: Random seed for deterministic downsampling
         ortho_view: If True, use orthographic projection
         point_size: Size of points in the visualization
         show_normals: Backward-compatible alias for show_vectors
@@ -73,20 +79,23 @@ def plot_point_cloud(
                 "supernormals mode requires features['s1'] of shape (N, 3) with N equal to len(points)."
             )
 
+    # Resolve backward-compatible max point cap.
+    effective_max_points = int(max_points) if max_points is not None else int(downsample_max_points)
+
     # Get total number of points
     total_points = len(points)
     
     # Sample points if there are too many
-    if total_points > max_points:
-        np.random.seed(42)
-        sample_idx = np.random.choice(total_points, max_points, replace=False)
+    if downsample_enabled and total_points > effective_max_points:
+        rng = np.random.default_rng(int(downsample_seed))
+        sample_idx = rng.choice(total_points, effective_max_points, replace=False)
         points_viz = points[sample_idx]
         normals_viz = normals[sample_idx] if normals is not None else None
         instances_viz = instances[sample_idx] if instances is not None else None
         features_viz = {k: v[sample_idx] for k, v in features.items()} if features else None
 
 
-        enhanced_title = f"{title} | Points: {max_points} (of {total_points})"
+        enhanced_title = f"{title} | Points: {effective_max_points} (of {total_points})"
     else:
         points_viz = points
         normals_viz = normals
@@ -233,6 +242,153 @@ def _add_vector_traces(fig, points, vectors, length, name, color):
 def save_html(fig: go.Figure, path: Union[str, Path]) -> None:
     """Save Plotly figure as standalone HTML file."""
     fig.write_html(path)
+
+
+def _safe_bounds(points: np.ndarray, pad_ratio: float = 0.05) -> Dict[str, List[float]]:
+    arr = np.asarray(points, dtype=np.float64)
+    if arr.size == 0:
+        return {"x": [-1.0, 1.0], "y": [-1.0, 1.0], "z": [-1.0, 1.0]}
+    arr = arr[np.all(np.isfinite(arr), axis=1)]
+    if arr.size == 0:
+        return {"x": [-1.0, 1.0], "y": [-1.0, 1.0], "z": [-1.0, 1.0]}
+
+    mins = arr.min(axis=0)
+    maxs = arr.max(axis=0)
+    span = np.maximum(maxs - mins, 1e-6)
+    pad = span * float(pad_ratio)
+    return {
+        "x": [float(mins[0] - pad[0]), float(maxs[0] + pad[0])],
+        "y": [float(mins[1] - pad[1]), float(maxs[1] + pad[1])],
+        "z": [float(mins[2] - pad[2]), float(maxs[2] + pad[2])],
+    }
+
+
+def _downsample_points(
+    points: np.ndarray,
+    *,
+    enabled: bool = True,
+    max_points: int = 20000,
+    seed: int = 42,
+) -> np.ndarray:
+    arr = np.asarray(points, dtype=np.float64)
+    if arr.ndim != 2 or arr.shape[1] != 3:
+        return np.empty((0, 3), dtype=np.float64)
+    arr = arr[np.all(np.isfinite(arr), axis=1)]
+    if not enabled or len(arr) <= int(max_points):
+        return arr
+    rng = np.random.default_rng(int(seed))
+    idx = rng.choice(len(arr), size=int(max_points), replace=False)
+    return arr[idx]
+
+
+def plot_estimated_lines_safe(
+    estimated_lines: Dict[int, Tuple[np.ndarray, np.ndarray]],
+    points: Optional[np.ndarray] = None,
+    *,
+    include_cloud: bool = True,
+    downsample_enabled: bool = True,
+    downsample_max_points: int = 20000,
+    downsample_seed: int = 42,
+    title: str = "Estimated lines (green)",
+    cloud_opacity: float = 0.35,
+    width: int = 1100,
+    height: int = 800,
+    ortho_view: bool = True,
+) -> Tuple[go.Figure, Dict[str, int]]:
+    """
+    Build a robust estimated-line figure with finite-value filtering and safe bounds.
+    """
+    fig = go.Figure()
+    debug = {
+        "line_candidates": int(len(estimated_lines)),
+        "line_plotted": 0,
+        "line_rejected_non_finite": 0,
+        "cloud_points_plotted": 0,
+    }
+
+    bounds_points = []
+    if include_cloud and points is not None:
+        cloud = _downsample_points(
+            points,
+            enabled=downsample_enabled,
+            max_points=downsample_max_points,
+            seed=downsample_seed,
+        )
+        if cloud.size:
+            fig.add_trace(
+                go.Scatter3d(
+                    x=cloud[:, 0],
+                    y=cloud[:, 1],
+                    z=cloud[:, 2],
+                    mode="markers",
+                    marker=dict(size=2, color="rgb(128,128,128)", opacity=cloud_opacity),
+                    name="",
+                    showlegend=False,
+                    hoverinfo="none",
+                )
+            )
+            bounds_points.append(cloud)
+            debug["cloud_points_plotted"] = int(len(cloud))
+
+    for _, (start_est, end_est) in estimated_lines.items():
+        start_arr = np.asarray(start_est, dtype=np.float64)
+        end_arr = np.asarray(end_est, dtype=np.float64)
+        pair = np.vstack([start_arr, end_arr])
+        if pair.shape != (2, 3) or not np.isfinite(pair).all():
+            debug["line_rejected_non_finite"] += 1
+            continue
+        fig.add_trace(
+            go.Scatter3d(
+                x=[float(start_arr[0]), float(end_arr[0])],
+                y=[float(start_arr[1]), float(end_arr[1])],
+                z=[float(start_arr[2]), float(end_arr[2])],
+                mode="lines",
+                line=dict(color="rgb(0,220,0)", width=8),
+                name="",
+                showlegend=False,
+                hoverinfo="none",
+            )
+        )
+        bounds_points.append(pair)
+        debug["line_plotted"] += 1
+
+    merged = np.vstack(bounds_points) if bounds_points else np.empty((0, 3), dtype=np.float64)
+    ranges = _safe_bounds(merged, pad_ratio=0.08)
+    camera = dict(up=dict(x=0, y=0, z=1), eye=dict(x=1.5, y=1.5, z=1.5))
+    if ortho_view:
+        camera["projection"] = dict(type="orthographic")
+
+    fig.update_layout(
+        title=title,
+        width=width,
+        height=height,
+        showlegend=False,
+        scene=dict(
+            aspectmode="data",
+            xaxis=dict(visible=False, range=ranges["x"]),
+            yaxis=dict(visible=False, range=ranges["y"]),
+            zaxis=dict(visible=False, range=ranges["z"]),
+            camera=camera,
+        ),
+    )
+    return fig, debug
+
+
+def show_or_export_plot(
+    fig: go.Figure,
+    output_html: Optional[Union[str, Path]] = None,
+    renderer: str = "notebook_connected",
+) -> Optional[Path]:
+    """
+    Show figure inline and optionally export an HTML fallback artifact.
+    """
+    export_path: Optional[Path] = None
+    if output_html is not None:
+        export_path = Path(output_html)
+        export_path.parent.mkdir(parents=True, exist_ok=True)
+        fig.write_html(str(export_path), include_plotlyjs="cdn")
+    fig.show(renderer=renderer)
+    return export_path
 
 
 def _generate_colors(n: int) -> list:
