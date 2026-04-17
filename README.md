@@ -27,7 +27,7 @@ git clone https://github.com/fnoi/pc2beam.git
 cd pc2beam
 ```
 
-2. Create the Conda environment (Python 3.12):
+2. Create the Conda environment (Python 3.11):
 ```bash
 conda env create -f environment.yml
 ```
@@ -39,26 +39,21 @@ conda activate pc2beam
 
 4. Verify the installation:
 ```bash
-python -c "import open3d, numpy, plotly, sklearn, omegaconf, matplotlib, tqdm, ifcopenshell, laspy; print('pc2beam env ready')"
+python -c "import pyhelios, run_helios_simulation, open3d, numpy, plotly, sklearn, omegaconf, matplotlib, tqdm, ifcopenshell, laspy; print('pc2beam env ready')"
 ```
 
 ### Reproducible installs (Conda vs pip)
 
-- **Full environment (IFC + HELIOS++):** use [environment.yml](environment.yml). `helios` and `ifcopenshell` are **pinned** so `conda env create -f environment.yml` stays on the same major/minor releases. Build hashes still differ by platform (e.g. Linux vs macOS); the file was validated with `conda env create --dry-run` on **macOS arm64**.
+- **Full environment (IFC + HELIOS++):** use [environment.yml](environment.yml). `helios` and `ifcopenshell` are **pinned** so `conda env create -f environment.yml` stays on the same major/minor releases. Build hashes still differ by platform (e.g. Linux vs macOS); the file is validated against the `pc2beam` environment on **macOS arm64**.
 - **Light install (no HELIOS binary):** [requirements.txt](requirements.txt) plus `pip install -e .` — suitable for Google Colab and machines where you only need Python libraries. There is no pip-distributed `helios` equivalent; keep simulation off (`RUN_HELIOS = False` in `simulation_demo.ipynb`).
 
 Notes:
 - `environment.yml` already installs `pc2beam` in editable mode via `pip -e .`; no extra install step is required.
-- If dependency resolution fails for `open3d` on your platform with Python 3.12, use Python 3.11 instead:
-```bash
-conda create -n pc2beam python=3.11 numpy open3d plotly scikit-learn omegaconf matplotlib tqdm pip -c conda-forge
-conda activate pc2beam
-pip install -e .
-```
+- `pc2beam` is the canonical project environment for this repository.
 
 ### Troubleshooting
 
-- **`ModuleNotFoundError: No module named 'laspy'`** (or other missing deps): the notebook or terminal is using a different Python than your Conda env. In a notebook run `import sys; print(sys.executable)` and confirm it matches `which python` after `conda activate pc2beam`. Fix: `conda install -n pc2beam -c conda-forge laspy` or `conda env update -f environment.yml --prune`; for pip-only setups use `pip install laspy` or `pip install -r requirements.txt`. In VS Code / Cursor / Jupyter, **select the `pc2beam` kernel** (Python 3.12 from that env). If the env does not appear, register it once: `conda activate pc2beam && python -m ipykernel install --user --name pc2beam --display-name "Python (pc2beam)"`.
+- **`ModuleNotFoundError: No module named 'laspy'`** (or other missing deps): the notebook or terminal is using a different Python than your Conda env. In a notebook run `import sys; print(sys.executable)` and confirm it matches `which python` after `conda activate pc2beam`. Fix: `conda install -n pc2beam -c conda-forge laspy` or `conda env update -n pc2beam -f environment.yml --prune`; for pip-only setups use `pip install laspy` or `pip install -r requirements.txt`. In VS Code / Cursor / Jupyter, **select the `pc2beam` kernel** (Python 3.11 from that env). If the env does not appear, register it once: `conda activate pc2beam && python -m ipykernel install --user --name pc2beam --display-name "Python (pc2beam)"`.
 
 ## Usage
 

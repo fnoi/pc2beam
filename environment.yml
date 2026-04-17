@@ -2,9 +2,8 @@ name: pc2beam
 channels:
   - conda-forge
 dependencies:
-  - python=3.12
+  - python=3.11
   - numpy
-  - open3d
   - plotly
   - scikit-learn
   - omegaconf
@@ -16,4 +15,6 @@ dependencies:
   - ipykernel
   - pip
   - pip:
+      - open3d==0.19.0
+      - dash==4.1.0
       - -e .
