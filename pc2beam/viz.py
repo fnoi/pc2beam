@@ -672,3 +672,62 @@ def plot_scanners_and_mesh(
         scene=dict(aspectmode="data", camera=cam),
     )
     return fig
+
+
+def plot_segment_planes_3d(
+    points: np.ndarray,
+    planes: Tuple[np.ndarray, np.ndarray],
+    projection_plane: np.ndarray,
+    grid_size: float = 0.5,
+    title: str = "Points and fitted planes",
+) -> go.Figure:
+    fig = go.Figure()
+    pts = np.asarray(points, dtype=np.float64)
+    fig.add_trace(
+        go.Scatter3d(
+            x=pts[:, 0], y=pts[:, 1], z=pts[:, 2],
+            mode="markers",
+            marker=dict(size=2, color="royalblue", opacity=0.7),
+            name="points",
+        )
+    )
+
+    all_planes = [("plane0", np.asarray(planes[0], dtype=np.float64), "rgba(0,180,0,0.25)"),
+                  ("plane1", np.asarray(planes[1], dtype=np.float64), "rgba(200,0,200,0.25)"),
+                  ("projection", np.asarray(projection_plane, dtype=np.float64), "rgba(220,120,0,0.25)")]
+    x = np.linspace(np.min(pts[:, 0]) - grid_size, np.max(pts[:, 0]) + grid_size, 20)
+    y = np.linspace(np.min(pts[:, 1]) - grid_size, np.max(pts[:, 1]) + grid_size, 20)
+    xx, yy = np.meshgrid(x, y)
+    for name, plane, color in all_planes:
+        a, b, c, d = plane
+        if abs(c) < 1e-12:
+            continue
+        zz = (-a * xx - b * yy - d) / c
+        fig.add_trace(go.Surface(x=xx, y=yy, z=zz, showscale=False, opacity=0.35, name=name, colorscale=[[0, color], [1, color]]))
+
+    fig.update_layout(
+        title=title,
+        scene=dict(aspectmode="data"),
+        width=1000,
+        height=800,
+    )
+    return fig
+
+
+def plot_projection_2d(
+    points_2d: np.ndarray,
+    title: str = "Projected 2D points",
+) -> go.Figure:
+    pts = np.asarray(points_2d, dtype=np.float64)
+    fig = go.Figure()
+    fig.add_trace(
+        go.Scatter(
+            x=pts[:, 0],
+            y=pts[:, 1],
+            mode="markers",
+            marker=dict(size=4, color="royalblue", opacity=0.7),
+            name="points_2d",
+        )
+    )
+    fig.update_layout(title=title, width=800, height=700, yaxis=dict(scaleanchor="x", scaleratio=1))
+    return fig

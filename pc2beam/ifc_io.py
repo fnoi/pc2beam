@@ -10,6 +10,8 @@ from typing import Any, Dict, List, Optional, Union
 
 import ifcopenshell
 import ifcopenshell.util.element as element_util
+import pandas as pd
+import numpy as np
 
 
 @dataclass
@@ -281,3 +283,27 @@ def non_beam_sidecar_fields(product) -> Dict[str, Any]:
     if psets:
         d["psets"] = psets
     return d
+
+
+def load_ishape_catalogue(ifc_path: Union[str, Path]) -> tuple[List[List[float]], pd.DataFrame]:
+    """
+    Load IfcIShapeProfileDef catalogue and return dimensions in meters.
+    """
+    f = ifcopenshell.open(str(Path(ifc_path)))
+    profiles = f.by_type("IfcIShapeProfileDef")
+    rows: List[List[Any]] = []
+    for profile in profiles:
+        rows.append(
+            [
+                str(getattr(profile, "ProfileName", "") or getattr(profile, "Name", "unknown")),
+                float(getattr(profile, "WebThickness", 0.0) or 0.0),
+                float(getattr(profile, "FlangeThickness", 0.0) or 0.0),
+                float(getattr(profile, "OverallWidth", 0.0) or 0.0),
+                float(getattr(profile, "OverallDepth", 0.0) or 0.0),
+            ]
+        )
+    df = pd.DataFrame(rows, columns=["name", "tw", "tf", "bf", "d"])
+    if not df.empty:
+        df[["tw", "tf", "bf", "d"]] = df[["tw", "tf", "bf", "d"]] / 1000.0
+    catalog = [list(map(float, rec[1:])) for rec in df.values.tolist()]
+    return catalog, df

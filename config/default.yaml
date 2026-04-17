@@ -23,3 +23,13 @@ visualization:
 # processing parameters
 processing:
   min_points_per_instance: 50
+
+legacy_projection:
+  enabled: false
+  min_plane_inliers: 10
+
+catalogue_fit:
+  enabled: false
+  ifc_catalogue_path: null
+  n_pop: 100
+  n_gen: 20

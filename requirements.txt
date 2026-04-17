@@ -7,3 +7,4 @@ scikit-learn>=1.3.0  # KDTree spatial indexing
 omegaconf>=2.3.0  # configuration management
 matplotlib>=3.7.0  # color generation in visualization
 tqdm>=4.66.0  # progress bars in processing
+pandas>=2.0.0  # evaluation tables and IFC catalogue dataframe
