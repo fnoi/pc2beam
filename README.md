@@ -69,6 +69,8 @@ The package processes two types of input files:
 Example files are provided in the repository:
 - Data files in `./data/`:
   - `test_points.txt`: Sample point cloud data
+  - `European_Steel_Section_Properties.csv`: Default EUR catalogue (`catalogue_fit.catalogue_region: eur`)
+  - `aisc-shapes-database-v15.0.csv`: US catalogue (`catalogue_fit.catalogue_region: us`)
   - `profiles.csv`: Sample steel profile catalog
   - `model_0_z_up.ifc`: Sample IFC4 structural model for the HELIOS++ workflow
 - Interactive tutorial in `./notebooks/`:
@@ -77,6 +79,18 @@ Example files are provided in the repository:
 - HELIOS generation docs and canonical assets in `./tools/helios_generation/`:
   - `README.md`: dedicated workflow documentation
   - `notebooks/simulation_demo.ipynb`: canonical HELIOS simulation notebook
+
+Catalogue fitting is CSV-based and supports regional defaults via config:
+- `catalogue_fit.catalogue_region: eur|us` (default `eur`)
+- `catalogue_fit.catalogue_csv_path`: optional explicit CSV override path
+- `catalogue_fit.show_progress`: show per-instance fitting progress in terminal (default `true`)
+- `catalogue_fit.show_generation_progress`: show inner per-generation progress for each instance (default `false`)
+- `catalogue_fit.progress_min_interval`: tqdm refresh interval in seconds (default `0.25`)
+
+When running `demo_script.py`, the loader resolves CSV in this order:
+1. `--catalogue-csv-path` (CLI override),
+2. `catalogue_fit.catalogue_csv_path` from config (if set),
+3. region default from `catalogue_fit.catalogue_region`.
 
 ## IFC models and HELIOS++ laser scanning
 

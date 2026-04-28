@@ -3,7 +3,7 @@ Visualization utilities for point cloud data.
 """
 
 from pathlib import Path
-from typing import Union, Optional, Dict, Literal, List, Tuple
+from typing import Union, Optional, Dict, Literal, List, Tuple, Any
 
 import numpy as np
 import plotly.graph_objects as go
@@ -378,16 +378,21 @@ def show_or_export_plot(
     fig: go.Figure,
     output_html: Optional[Union[str, Path]] = None,
     renderer: str = "notebook_connected",
+    show: bool = True,
 ) -> Optional[Path]:
     """
     Show figure inline and optionally export an HTML fallback artifact.
+
+    ``renderer`` is passed to ``fig.show()`` (e.g. ``notebook_connected``, ``browser``).
+    If ``show`` is False, only HTML export is performed when ``output_html`` is set.
     """
     export_path: Optional[Path] = None
     if output_html is not None:
         export_path = Path(output_html)
         export_path.parent.mkdir(parents=True, exist_ok=True)
         fig.write_html(str(export_path), include_plotlyjs="cdn")
-    fig.show(renderer=renderer)
+    if show:
+        fig.show(renderer=renderer)
     return export_path
 
 
@@ -710,6 +715,204 @@ def plot_segment_planes_3d(
         scene=dict(aspectmode="data"),
         width=1000,
         height=800,
+    )
+    return fig
+
+
+def select_cross_section_instance_ids(
+    legacy_projection: Dict[Any, Any],
+    catalogue_fit: Optional[Dict[Any, Any]] = None,
+    n: int = 9,
+    rng: Optional[np.random.Generator] = None,
+) -> List[int]:
+    """
+    Pick up to ``n`` instance ids with successful ``legacy_projection`` entries.
+
+    If ``catalogue_fit`` is provided, only instances with a successful catalogue entry
+    (``ok``) are eligible.
+    """
+    if rng is None:
+        rng = np.random.default_rng(42)
+    ok_ids: List[int] = []
+    for k, v in legacy_projection.items():
+        if isinstance(v, dict) and v.get("ok"):
+            ok_ids.append(int(k))
+    if catalogue_fit:
+        ok_ids = [
+            i
+            for i in ok_ids
+            if isinstance(catalogue_fit.get(i), dict) and catalogue_fit[i].get("ok")
+        ]
+    if not ok_ids:
+        return []
+    ok_ids.sort()
+    k = min(int(n), len(ok_ids))
+    idx = rng.choice(len(ok_ids), size=k, replace=False)
+    return [ok_ids[i] for i in idx]
+
+
+def _projection_line_segments_2d(
+    projection: Dict[str, Any],
+    points_2d: np.ndarray,
+) -> List[Tuple[np.ndarray, np.ndarray]]:
+    """
+    Build finite 2D line segments from projection-plane intersection directions.
+
+    The projected intersection lines pass through ``source_center`` which maps to the
+    target origin in ``project_instance_to_section_2d``. This function converts each
+    line direction to the 2D subplot frame and returns finite endpoints clipped to a
+    data-driven extent around the points.
+    """
+    transform = projection.get("transform")
+    if transform is None:
+        return []
+    tf = np.asarray(transform, dtype=np.float64)
+    if tf.shape != (4, 4) or not np.isfinite(tf).all():
+        return []
+    if points_2d.ndim != 2 or points_2d.shape[1] != 2 or len(points_2d) == 0:
+        return []
+
+    finite_pts = points_2d[np.all(np.isfinite(points_2d), axis=1)]
+    if len(finite_pts) == 0:
+        return []
+    mins = np.min(finite_pts, axis=0)
+    maxs = np.max(finite_pts, axis=0)
+    span = np.maximum(maxs - mins, 1e-6)
+    extent = float(np.linalg.norm(span)) * 0.9 + 1e-6
+
+    # source_center maps to (0, 0, 0) in target frame by construction.
+    line_origin_2d = np.array([0.0, 0.0], dtype=np.float64)
+    segments: List[Tuple[np.ndarray, np.ndarray]] = []
+    for key in ("proj_dir_0", "proj_dir_1"):
+        direction = projection.get(key)
+        if direction is None:
+            continue
+        d = np.asarray(direction, dtype=np.float64).reshape(-1)
+        if d.shape != (3,) or not np.isfinite(d).all():
+            continue
+        d_h = np.array([d[0], d[1], d[2], 0.0], dtype=np.float64)
+        d_target = (tf @ d_h)[:3]
+        d2 = d_target[:2]
+        n = float(np.linalg.norm(d2))
+        if n < 1e-12:
+            continue
+        d2 = d2 / n
+        p0 = line_origin_2d - extent * d2
+        p1 = line_origin_2d + extent * d2
+        segments.append((p0, p1))
+    return segments
+
+
+def plot_cross_section_grid(
+    point_cloud: Any,
+    instance_ids: List[int],
+    *,
+    titles: Optional[List[str]] = None,
+    show_projection_lines: bool = False,
+    projection_line_color: str = "darkorange",
+    projection_line_width: float = 1.5,
+    grid_title: str = "Beam cross-sections (2D projection)",
+    width: int = 1200,
+    height: int = 1100,
+) -> go.Figure:
+    """
+    3x3 grid of 2D legacy projections; overlays catalogue ``h_beam_verts`` when available.
+    """
+    legacy = point_cloud.features.get("legacy_projection")
+    if legacy is None:
+        raise ValueError("point_cloud.features['legacy_projection'] is required.")
+    catalogue: Dict[Any, Any] = point_cloud.features.get("catalogue_fit") or {}
+
+    subplot_titles: List[str] = []
+    for i in range(9):
+        if i < len(instance_ids):
+            tid = instance_ids[i]
+            base = titles[i] if titles and i < len(titles) else f"instance {tid}"
+            if catalogue.get(tid, {}).get("ok"):
+                cs = catalogue[tid].get("cstype")
+                base = f"{base} ({cs})" if cs else base
+            subplot_titles.append(base)
+        else:
+            subplot_titles.append("")
+
+    fig = make_subplots(
+        rows=3,
+        cols=3,
+        subplot_titles=subplot_titles,
+        horizontal_spacing=0.06,
+        vertical_spacing=0.09,
+    )
+
+    for i in range(9):
+        row = i // 3 + 1
+        col = i % 3 + 1
+        if i >= len(instance_ids):
+            continue
+        iid = instance_ids[i]
+        proj = legacy.get(iid) or legacy.get(int(iid))
+        if not isinstance(proj, dict) or not proj.get("ok"):
+            continue
+        pts = np.asarray(proj["points_2d"], dtype=np.float64)
+        fig.add_trace(
+            go.Scatter(
+                x=pts[:, 0],
+                y=pts[:, 1],
+                mode="markers",
+                marker=dict(size=3, color="royalblue", opacity=0.65),
+                name=f"pts_{iid}",
+                showlegend=False,
+            ),
+            row=row,
+            col=col,
+        )
+        if show_projection_lines:
+            for p0, p1 in _projection_line_segments_2d(proj, pts):
+                fig.add_trace(
+                    go.Scatter(
+                        x=[float(p0[0]), float(p1[0])],
+                        y=[float(p0[1]), float(p1[1])],
+                        mode="lines",
+                        line=dict(color=projection_line_color, width=projection_line_width),
+                        name=f"proj_lines_{iid}",
+                        showlegend=False,
+                    ),
+                    row=row,
+                    col=col,
+                )
+        fit = catalogue.get(iid)
+        if fit is None:
+            fit = catalogue.get(int(iid))
+        if isinstance(fit, dict) and fit.get("ok") and "h_beam_verts" in fit:
+            v = np.asarray(fit["h_beam_verts"], dtype=np.float64)
+            if v.ndim == 2 and v.shape[1] == 2 and len(v) >= 3:
+                vx = np.append(v[:, 0], v[0, 0])
+                vy = np.append(v[:, 1], v[0, 1])
+                fig.add_trace(
+                    go.Scatter(
+                        x=vx,
+                        y=vy,
+                        mode="lines",
+                        line=dict(color="crimson", width=2),
+                        name=f"fit_{iid}",
+                        showlegend=False,
+                    ),
+                    row=row,
+                    col=col,
+                )
+
+    # Enforce equal aspect ratio per subplot: each y-axis is anchored to its own x-axis.
+    for i in range(9):
+        r = i // 3 + 1
+        c = i % 3 + 1
+        axis_idx = i + 1
+        xref = "x" if axis_idx == 1 else f"x{axis_idx}"
+        fig.update_xaxes(constrain="domain", row=r, col=c)
+        fig.update_yaxes(scaleanchor=xref, scaleratio=1, row=r, col=c)
+
+    fig.update_layout(
+        title_text=grid_title,
+        width=width,
+        height=height,
     )
     return fig
 

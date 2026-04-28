@@ -285,25 +285,87 @@ def non_beam_sidecar_fields(product) -> Dict[str, Any]:
     return d
 
 
-def load_ishape_catalogue(ifc_path: Union[str, Path]) -> tuple[List[List[float]], pd.DataFrame]:
+_CATALOGUE_REGION_DEFAULTS = {
+    "eur": Path("data/European_Steel_Section_Properties.csv"),
+    "us": Path("data/aisc-shapes-database-v15.0.csv"),
+}
+
+
+def _to_float_series(series: pd.Series) -> pd.Series:
+    text = series.astype(str).str.replace(",", ".", regex=False).str.strip()
+    return pd.to_numeric(text, errors="coerce")
+
+
+def _normalize_eur_catalogue(df_raw: pd.DataFrame) -> pd.DataFrame:
+    required = ["Designation", "tw (mm)", "tf (mm)", "b (mm)", "h (mm)"]
+    missing = [c for c in required if c not in df_raw.columns]
+    if missing:
+        raise ValueError(f"EUR catalogue missing required columns: {missing}")
+    return pd.DataFrame(
+        {
+            "name": df_raw["Designation"].astype(str).str.strip(),
+            "tw": _to_float_series(df_raw["tw (mm)"]) / 1000.0,
+            "tf": _to_float_series(df_raw["tf (mm)"]) / 1000.0,
+            "bf": _to_float_series(df_raw["b (mm)"]) / 1000.0,
+            "d": _to_float_series(df_raw["h (mm)"]) / 1000.0,
+        }
+    )
+
+
+def _normalize_us_catalogue(df_raw: pd.DataFrame) -> pd.DataFrame:
+    required = ["AISC_Manual_Label", "tw", "tf", "bf", "d"]
+    missing = [c for c in required if c not in df_raw.columns]
+    if missing:
+        raise ValueError(f"US catalogue missing required columns: {missing}")
+    return pd.DataFrame(
+        {
+            "name": df_raw["AISC_Manual_Label"].astype(str).str.strip(),
+            "tw": _to_float_series(df_raw["tw"]) * 0.0254,
+            "tf": _to_float_series(df_raw["tf"]) * 0.0254,
+            "bf": _to_float_series(df_raw["bf"]) * 0.0254,
+            "d": _to_float_series(df_raw["d"]) * 0.0254,
+        }
+    )
+
+
+def resolve_catalogue_csv_path(
+    *,
+    catalogue_region: str = "eur",
+    override_path: Optional[Union[str, Path]] = None,
+) -> Path:
+    if override_path is not None:
+        path = Path(override_path)
+        if not path.is_absolute():
+            path = Path(__file__).resolve().parents[1] / path
+        return path
+    key = str(catalogue_region).strip().lower()
+    if key not in _CATALOGUE_REGION_DEFAULTS:
+        raise ValueError("catalogue_region must be one of: eur, us")
+    return Path(__file__).resolve().parents[1] / _CATALOGUE_REGION_DEFAULTS[key]
+
+
+def load_ishape_catalogue(csv_path: Union[str, Path], *, catalogue_region: str = "eur") -> tuple[List[List[float]], pd.DataFrame]:
     """
-    Load IfcIShapeProfileDef catalogue and return dimensions in meters.
+    Load steel section catalogue from CSV and return dimensions in meters.
     """
-    f = ifcopenshell.open(str(Path(ifc_path)))
-    profiles = f.by_type("IfcIShapeProfileDef")
-    rows: List[List[Any]] = []
-    for profile in profiles:
-        rows.append(
-            [
-                str(getattr(profile, "ProfileName", "") or getattr(profile, "Name", "unknown")),
-                float(getattr(profile, "WebThickness", 0.0) or 0.0),
-                float(getattr(profile, "FlangeThickness", 0.0) or 0.0),
-                float(getattr(profile, "OverallWidth", 0.0) or 0.0),
-                float(getattr(profile, "OverallDepth", 0.0) or 0.0),
-            ]
-        )
-    df = pd.DataFrame(rows, columns=["name", "tw", "tf", "bf", "d"])
-    if not df.empty:
-        df[["tw", "tf", "bf", "d"]] = df[["tw", "tf", "bf", "d"]] / 1000.0
-    catalog = [list(map(float, rec[1:])) for rec in df.values.tolist()]
-    return catalog, df
+    path = Path(csv_path)
+    if not path.exists():
+        raise ValueError(f"Catalogue CSV not found: {path}")
+    region = str(catalogue_region).strip().lower()
+    if region not in _CATALOGUE_REGION_DEFAULTS:
+        raise ValueError("catalogue_region must be one of: eur, us")
+
+    if region == "eur":
+        df_raw = pd.read_csv(path)
+        df = _normalize_eur_catalogue(df_raw)
+    else:
+        df_raw = pd.read_csv(path, sep=";")
+        df = _normalize_us_catalogue(df_raw)
+
+    df = df.replace([np.inf, -np.inf], np.nan).dropna(subset=["name", "tw", "tf", "bf", "d"]).copy()
+    df = df[(df["tw"] > 0.0) & (df["tf"] > 0.0) & (df["bf"] > 0.0) & (df["d"] > 0.0)]
+    if df.empty:
+        raise ValueError(f"Catalogue CSV contains no valid sections: {path}")
+
+    catalog = [list(map(float, rec[1:])) for rec in df[["name", "tw", "tf", "bf", "d"]].values.tolist()]
+    return catalog, df[["name", "tw", "tf", "bf", "d"]].reset_index(drop=True)

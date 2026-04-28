@@ -5,7 +5,7 @@ Convert HELIOS LAS outputs into a demo-compatible pc2beam TXT input.
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Union
+from typing import Any, Dict, List, Optional, Sequence, Union
 
 import numpy as np
 from omegaconf import DictConfig, OmegaConf
@@ -35,7 +35,42 @@ def _beam_part_map_from_sidecar(sidecar: DictConfig) -> Dict[int, int]:
     return out
 
 
-def _estimate_normals(points: np.ndarray, k: int = 30) -> np.ndarray:
+def _normalize_scanner_positions(
+    scanner_positions: Optional[Sequence[Sequence[float]]],
+) -> Optional[List[np.ndarray]]:
+    if scanner_positions is None:
+        return None
+    normalized: List[np.ndarray] = []
+    for idx, pos in enumerate(scanner_positions):
+        arr = np.asarray(pos, dtype=np.float64)
+        if arr.shape != (3,):
+            raise ValueError(
+                f"scanner_positions[{idx}] must have shape (3,), got {arr.shape}"
+            )
+        normalized.append(arr)
+    return normalized
+
+
+def _orient_normals_towards_scanner(points: np.ndarray, normals: np.ndarray, scanner_position: np.ndarray) -> np.ndarray:
+    if len(points) == 0:
+        return normals.astype(np.float32, copy=False)
+    scanner_position = np.asarray(scanner_position, dtype=np.float64)
+    vectors_to_scanner = scanner_position[None, :] - points.astype(np.float64, copy=False)
+    dot = np.sum(normals.astype(np.float64, copy=False) * vectors_to_scanner, axis=1)
+    flip_mask = dot < 0.0
+    if np.any(flip_mask):
+        normals = normals.copy()
+        normals[flip_mask] *= -1.0
+    return normals.astype(np.float32, copy=False)
+
+
+def _estimate_normals(
+    points: np.ndarray,
+    k: int = 30,
+    *,
+    scanner_position: Optional[np.ndarray] = None,
+    orient_towards_scanner: bool = False,
+) -> np.ndarray:
     if len(points) == 0:
         return np.zeros((0, 3), dtype=np.float32)
     try:
@@ -50,7 +85,14 @@ def _estimate_normals(points: np.ndarray, k: int = 30) -> np.ndarray:
         pcd.estimate_normals(
             search_param=o3d.geometry.KDTreeSearchParamHybrid(radius=radius, max_nn=k)
         )
-        pcd.orient_normals_to_align_with_direction(np.array([0.0, 0.0, 1.0], dtype=np.float64))
+        if orient_towards_scanner and scanner_position is not None:
+            pcd.orient_normals_towards_camera_location(
+                np.asarray(scanner_position, dtype=np.float64)
+            )
+        else:
+            pcd.orient_normals_to_align_with_direction(
+                np.array([0.0, 0.0, 1.0], dtype=np.float64)
+            )
         return np.asarray(pcd.normals, dtype=np.float32)
     except ImportError:
         k_eff = int(max(3, min(k, len(points))))
@@ -77,7 +119,13 @@ def _estimate_normals(points: np.ndarray, k: int = 30) -> np.ndarray:
             n_norm = np.linalg.norm(n)
             if n_norm > 0:
                 n = n / n_norm
-            if float(np.dot(n, z_up)) < 0:
+            if orient_towards_scanner and scanner_position is not None:
+                to_scanner = np.asarray(scanner_position, dtype=np.float64) - points[i].astype(
+                    np.float64, copy=False
+                )
+                if float(np.dot(n, to_scanner)) < 0:
+                    n = -n
+            elif float(np.dot(n, z_up)) < 0:
                 n = -n
             normals[i] = n
         return normals.astype(np.float32)
@@ -106,6 +154,9 @@ def export_helios_sim_to_pc2beam_txt(
     *,
     background_label: int = -1,
     normal_knn: int = 30,
+    scanner_positions: Optional[Sequence[Sequence[float]]] = None,
+    orient_towards_scanner: bool = True,
+    per_leg_normals: bool = True,
 ) -> Dict[str, Any]:
     """
     Export HELIOS LAS results to a 7-column txt:
@@ -116,10 +167,25 @@ def export_helios_sim_to_pc2beam_txt(
         raise FileNotFoundError(f"No LAS files found under {Path(sim_output_dir).resolve()}")
 
     beam_part_to_instance = _beam_part_map_from_sidecar(sidecar)
+    scanner_positions_arr = _normalize_scanner_positions(scanner_positions)
+    scanner_oriented_normals_used = False
+    scanner_orientation_fallback_reason: Optional[str] = None
+    if orient_towards_scanner:
+        if scanner_positions_arr is None:
+            scanner_orientation_fallback_reason = "scanner_positions_not_provided"
+        elif len(scanner_positions_arr) != len(las_files):
+            scanner_orientation_fallback_reason = (
+                "scanner_positions_count_mismatch: "
+                f"{len(scanner_positions_arr)} for {len(las_files)} legs"
+            )
+        else:
+            scanner_oriented_normals_used = True
+
     point_chunks: List[np.ndarray] = []
+    normal_chunks: List[np.ndarray] = []
     label_chunks: List[np.ndarray] = []
 
-    for las_path in las_files:
+    for leg_idx, las_path in enumerate(las_files):
         scan = read_las_scan(las_path)
         pts = np.asarray(scan.points, dtype=np.float32)
         labels = _labels_from_hit_object_id(
@@ -128,12 +194,24 @@ def export_helios_sim_to_pc2beam_txt(
             len(pts),
             background_label=background_label,
         )
+        if per_leg_normals:
+            scanner_pos = scanner_positions_arr[leg_idx] if scanner_oriented_normals_used else None
+            normals = _estimate_normals(
+                pts,
+                k=normal_knn,
+                scanner_position=scanner_pos,
+                orient_towards_scanner=scanner_oriented_normals_used,
+            )
+            normal_chunks.append(normals)
         point_chunks.append(pts)
         label_chunks.append(labels)
 
     points = np.concatenate(point_chunks, axis=0)
     labels = np.concatenate(label_chunks, axis=0)
-    normals = _estimate_normals(points, k=normal_knn)
+    if per_leg_normals:
+        normals = np.concatenate(normal_chunks, axis=0)
+    else:
+        normals = _estimate_normals(points, k=normal_knn)
 
     output_txt_path = Path(output_txt_path)
     output_txt_path.parent.mkdir(parents=True, exist_ok=True)
@@ -148,4 +226,9 @@ def export_helios_sim_to_pc2beam_txt(
         "labeled_beam_point_count": int(np.count_nonzero(labeled_mask)),
         "background_point_count": int(np.count_nonzero(~labeled_mask)),
         "background_label": int(background_label),
+        "per_leg_normals": bool(per_leg_normals),
+        "scanner_oriented_normals_used": bool(scanner_oriented_normals_used),
+        "scanner_position_count": 0 if scanner_positions_arr is None else int(len(scanner_positions_arr)),
+        "leg_count": int(len(las_files)),
+        "scanner_orientation_fallback_reason": scanner_orientation_fallback_reason,
     }

@@ -128,12 +128,18 @@ def run_ifc_helios_pipeline(
         result["helios_data"] = helios_data
         extra = list(helios_extra_args) if helios_extra_args else None
         cp = run_helios(survey_xml, helios_data, run_dir, sim_out, extra_args=extra)
-        pc2beam_txt = pc2beam_input_dir / "points_with_normals_instances.txt"
+        scanner_positions = [list(s.position) for s in scan_cfg.scanners]
+        las_files = sorted(sim_out.rglob("*.las"))
+        txt_parent = las_files[0].parent if las_files else sim_out
+        pc2beam_txt = txt_parent / "points_with_normals_instances.txt"
         input_summary = export_helios_sim_to_pc2beam_txt(
             sim_output_dir=sim_out,
             sidecar=sidecar,
             output_txt_path=pc2beam_txt,
             background_label=-1,
+            scanner_positions=scanner_positions,
+            orient_towards_scanner=True,
+            per_leg_normals=True,
         )
         result["pc2beam_input_txt"] = input_summary["output_txt"]
         result["pc2beam_input_summary"] = input_summary

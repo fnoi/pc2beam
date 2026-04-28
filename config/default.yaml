@@ -9,8 +9,22 @@ s1:
 # s2 estimationparameters
 s2:
   distance_threshold: 0.02
+  # Optional strict-to-loose thresholds (meters). If null/empty, use distance_threshold only.
+  distance_threshold_schedule: [0.004, 0.006, 0.009, 0.013, 0.02]
   ransac_n: 3
   num_iterations: 1000
+  quality:
+    # Minimum fraction of points close to either projected plane-line.
+    support_ratio_min: 0.35
+    # Maximum allowed p90 residual relative to active threshold.
+    p90_max_factor: 2.5
+    # Residual tube radius factor relative to active threshold.
+    residual_tube_factor: 1.5
+    # Weights for suitability score.
+    weight_residual: 0.45
+    weight_support: 0.35
+    weight_balance: 0.10
+    weight_angle: 0.10
 
 # visualization parameters
 visualization:
@@ -27,9 +41,24 @@ processing:
 legacy_projection:
   enabled: false
   min_plane_inliers: 10
+  # Optional cap on points used for plane RANSAC (full cloud still projected to 2D).
+  # Inlier indices are omitted when subsampling is active.
+  ransac_max_points: null
 
 catalogue_fit:
   enabled: false
-  ifc_catalogue_path: null
+  catalogue_region: eur
+  catalogue_csv_path: data/European_Steel_Section_Properties.csv
   n_pop: 100
-  n_gen: 20
+  n_gen: 100
+  show_progress: true
+  show_generation_progress: true
+  progress_min_interval: 0.25
+  # Legacy-style fitting options (see AGENTS.md / catalogue_fit module).
+  n_downsample: 200
+  polygon_subdivision: false
+  edge_subdivision_lmax: 0.01
+  use_cluster_weights: true
+  kmeans_random_seed: null
+  # CPU parallelism for per-instance catalogue fits (-1 uses all available cores).
+  n_jobs: -1

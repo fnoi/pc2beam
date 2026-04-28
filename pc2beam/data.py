@@ -2,13 +2,69 @@
 Point cloud data structure and processing utilities.
 """
 
+import os
+from concurrent.futures import ProcessPoolExecutor, as_completed
+
 import numpy as np
 import open3d as o3d
 from typing import Optional, Union
 from pathlib import Path
+from tqdm import tqdm
 from . import processing, viz
-from .ifc_io import load_ishape_catalogue
+from .ifc_io import load_ishape_catalogue, resolve_catalogue_csv_path
 from .catalog_fit import solve_w_nsga_style, FitConfig
+from .cs_geometry import kmeans_points_normals_2D
+
+
+def _fit_catalogue_instance_job(
+    instance_id: int,
+    projection: dict,
+    catalogue_df,
+    fit_cfg: FitConfig,
+    n_downsample: int,
+    km_seed: int,
+    show_generation_progress: bool,
+    progress_min_interval: float,
+):
+    points_2d = np.asarray(projection["points_2d"], dtype=np.float64)
+    normals_2d = np.asarray(projection["normals_2d"], dtype=np.float64)
+    n_in = len(points_2d)
+    subsampling_meta = {
+        "subsampling_method": "none",
+        "n_input_points": int(n_in),
+        "n_fitting_points": int(n_in),
+    }
+    pts_fit = points_2d
+    nrm_fit = normals_2d
+    cluster_weights = None
+    if int(n_downsample) > 0 and int(n_downsample) < n_in:
+        reps, rep_normals, cw, _labels = kmeans_points_normals_2D(
+            points_2d,
+            normals_2d,
+            int(n_downsample),
+            random_state=km_seed,
+        )
+        pts_fit = reps
+        nrm_fit = rep_normals
+        cluster_weights = cw
+        subsampling_meta = {
+            "subsampling_method": "kmeans",
+            "n_input_points": int(n_in),
+            "n_fitting_points": int(len(reps)),
+        }
+
+    fit = solve_w_nsga_style(
+        pts_fit,
+        nrm_fit,
+        catalogue_df,
+        fit_cfg=fit_cfg,
+        cluster_weights=cluster_weights,
+        show_progress=show_generation_progress,
+        progress_label=f"instance {int(instance_id)}",
+        progress_min_interval=progress_min_interval,
+    )
+    return int(instance_id), {**subsampling_meta, **fit}
+
 
 class PointCloud:
     """Point cloud data structure."""
@@ -96,11 +152,11 @@ class PointCloud:
         **kwargs,
     ):
         s2 = processing.calculate_s2(
-            self.points,
-            self.instances,
-            distance_threshold,
-            ransac_n,
-            num_iterations,
+            points=self.points,
+            instances=self.instances,
+            distance_threshold=distance_threshold,
+            ransac_n=ransac_n,
+            num_iterations=num_iterations,
             **kwargs,
         )
         self.features["s2"] = s2
@@ -112,6 +168,7 @@ class PointCloud:
         ransac_n=3,
         num_iterations=1000,
         min_plane_inliers=10,
+        ransac_max_points: Optional[int] = None,
     ):
         if self.instances is None:
             raise ValueError("Instances are required for legacy projection flow.")
@@ -121,13 +178,14 @@ class PointCloud:
         projection = {}
         for instance_id in np.unique(self.instances):
             mask = self.instances == instance_id
-            result = processing.project_points_by_plane_alignment(
+            result = processing.project_instance_to_section_2d(
                 self.points[mask],
                 self.normals[mask],
                 distance_threshold=distance_threshold,
                 ransac_n=ransac_n,
                 num_iterations=num_iterations,
                 min_plane_inliers=min_plane_inliers,
+                ransac_max_points=ransac_max_points,
             )
             projection[int(instance_id)] = result
         self.features["legacy_projection"] = projection
@@ -135,33 +193,144 @@ class PointCloud:
 
     def fit_cross_sections_from_catalogue(
         self,
-        ifc_catalogue_path: Union[str, Path],
+        catalogue_csv_path: Optional[Union[str, Path]] = None,
+        ifc_catalogue_path: Optional[Union[str, Path]] = None,
+        catalogue_region: str = "eur",
         n_pop: int = 100,
         n_gen: int = 20,
         random_seed: int = 42,
+        show_progress: bool = True,
+        show_generation_progress: bool = False,
+        progress_min_interval: float = 0.25,
+        n_downsample: int = 0,
+        polygon_subdivision: bool = False,
+        edge_subdivision_lmax: float = 0.01,
+        use_cluster_weights: bool = True,
+        kmeans_random_seed: Optional[int] = None,
+        n_jobs: int = -1,
     ):
         if "legacy_projection" not in self.features:
             raise ValueError("Run compute_legacy_projection before catalogue fitting.")
-        _, catalogue_df = load_ishape_catalogue(ifc_catalogue_path)
+        catalogue_path = resolve_catalogue_csv_path(
+            catalogue_region=catalogue_region,
+            override_path=(
+                catalogue_csv_path
+                if catalogue_csv_path is not None
+                else ifc_catalogue_path
+            ),
+        )
+        _, catalogue_df = load_ishape_catalogue(
+            catalogue_path,
+            catalogue_region=catalogue_region,
+        )
         if catalogue_df.empty:
-            raise ValueError("IfcIShapeProfileDef catalogue is empty.")
+            raise ValueError("Catalogue is empty after CSV normalization.")
 
         fit_results = {}
-        fit_cfg = FitConfig(n_pop=n_pop, n_gen=n_gen, random_seed=random_seed)
-        for instance_id, projection in self.features["legacy_projection"].items():
+        km_seed = int(random_seed) if kmeans_random_seed is None else int(kmeans_random_seed)
+        fit_cfg = FitConfig(
+            n_pop=n_pop,
+            n_gen=n_gen,
+            random_seed=random_seed,
+            polygon_subdivision=polygon_subdivision,
+            edge_subdivision_lmax=edge_subdivision_lmax,
+            use_cluster_weights=use_cluster_weights,
+        )
+        stats = {"processed": 0, "ok": 0, "failed": 0, "skipped": 0}
+        jobs = int(n_jobs)
+        if jobs == 0:
+            jobs = 1
+        if jobs < 0:
+            jobs = max(1, os.cpu_count() or 1)
+
+        pending = []
+        iterator = self.features["legacy_projection"].items()
+        for instance_id, projection in iterator:
+            stats["processed"] += 1
             if not projection.get("ok"):
                 fit_results[int(instance_id)] = {
                     "ok": False,
                     "status": f"projection_failed:{projection.get('status', 'unknown')}",
                 }
+                stats["failed"] += 1
                 continue
             points_2d = np.asarray(projection["points_2d"], dtype=np.float64)
-            normals_2d = np.asarray(projection["normals_2d"], dtype=np.float64)
             if len(points_2d) < 8:
                 fit_results[int(instance_id)] = {"ok": False, "status": "insufficient_points"}
+                stats["skipped"] += 1
                 continue
-            fit = solve_w_nsga_style(points_2d, normals_2d, catalogue_df, fit_cfg=fit_cfg)
-            fit_results[int(instance_id)] = {"ok": True, **fit}
+            pending.append((int(instance_id), projection))
+
+        if show_progress:
+            tqdm.write(
+                f"[catalogue-fit] scheduling {len(pending)} fits with n_jobs={jobs}"
+            )
+        progress = None
+        if show_progress:
+            progress = tqdm(
+                total=len(pending),
+                desc="catalogue-fit instances",
+                unit="inst",
+                mininterval=max(0.0, float(progress_min_interval)),
+            )
+            progress.set_postfix(stats, refresh=False)
+
+        if jobs == 1:
+            for instance_id, projection in pending:
+                iid, fit = _fit_catalogue_instance_job(
+                    instance_id,
+                    projection,
+                    catalogue_df,
+                    fit_cfg,
+                    n_downsample,
+                    km_seed,
+                    show_generation_progress,
+                    progress_min_interval,
+                )
+                fit_results[int(iid)] = {"ok": True, **fit}
+                stats["ok"] += 1
+                if progress is not None:
+                    score = fit.get("fitness", {}).get("score")
+                    if score is not None:
+                        tqdm.write(
+                            f"[catalogue-fit] instance={int(iid)} done score={float(score):.6f}"
+                        )
+                    progress.update(1)
+                    progress.set_postfix(stats, refresh=False)
+        else:
+            # Keep stdout readable: generation-level tqdm from many processes gets noisy.
+            if show_generation_progress and show_progress:
+                tqdm.write("[catalogue-fit] disabling per-generation bars in parallel mode")
+            with ProcessPoolExecutor(max_workers=jobs) as ex:
+                futures = [
+                    ex.submit(
+                        _fit_catalogue_instance_job,
+                        instance_id,
+                        projection,
+                        catalogue_df,
+                        fit_cfg,
+                        n_downsample,
+                        km_seed,
+                        False,
+                        progress_min_interval,
+                    )
+                    for instance_id, projection in pending
+                ]
+                for fut in as_completed(futures):
+                    iid, fit = fut.result()
+                    fit_results[int(iid)] = {"ok": True, **fit}
+                    stats["ok"] += 1
+                    if progress is not None:
+                        score = fit.get("fitness", {}).get("score")
+                        if score is not None:
+                            tqdm.write(
+                                f"[catalogue-fit] instance={int(iid)} done score={float(score):.6f}"
+                            )
+                        progress.update(1)
+                        progress.set_postfix(stats, refresh=False)
+
+        if progress is not None:
+            progress.close()
         self.features["catalogue_fit"] = fit_results
         return self
 

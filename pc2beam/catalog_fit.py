@@ -8,6 +8,10 @@ from dataclasses import dataclass
 from typing import Any, Dict, Optional
 
 import numpy as np
+from sklearn.metrics.pairwise import cosine_similarity
+from tqdm import tqdm
+
+from .cs_geometry import subdivide_edges
 
 
 def params2verts(solution: np.ndarray, from_cog: bool = True) -> np.ndarray:
@@ -61,36 +65,101 @@ def point_segment_distance(points: np.ndarray, p1: np.ndarray, p2: np.ndarray) -
     return np.linalg.norm(points - projections, axis=1)
 
 
-def _cost_combined(solution_params: np.ndarray, points: np.ndarray, normals: np.ndarray) -> tuple[float, float, float]:
+def _cost_combined(
+    solution_params: np.ndarray,
+    points: np.ndarray,
+    normals: np.ndarray,
+    *,
+    polygon_subdivision: bool = False,
+    edge_subdivision_lmax: float = 0.01,
+    cluster_weights: Optional[np.ndarray] = None,
+    use_cluster_weights: bool = True,
+) -> tuple[float, float, float]:
+    """
+    Legacy-style three objectives (minimize log-distance and inactive edge fraction,
+    maximize orientation cosine sum — combined with scalar ``log - coverage - cosine``).
+
+    When ``polygon_subdivision`` is False and no cluster weights are applied, edge
+    activity uses the same ``edge_attribute_no > 0`` mask as the full legacy path.
+    """
+    data_points = np.asarray(points, dtype=np.float64)
+    data_normals = np.asarray(normals, dtype=np.float64)
+    n_pts = data_points.shape[0]
+    if n_pts == 0:
+        raise ValueError("empty point set in cost")
+
     verts = params2verts(solution_params, from_cog=False)
-    edges = verts2edges(verts)
-    edge_normals = get_solution_edge_normals()
-    edge_lengths = np.linalg.norm(edges[:, 1] - edges[:, 0], axis=1)
+    solution_edges = verts2edges(verts)
+    solution_edge_normals = get_solution_edge_normals()
+
+    if polygon_subdivision:
+        se, sn = subdivide_edges(
+            edges=solution_edges,
+            edge_normals=solution_edge_normals,
+            lmax=float(edge_subdivision_lmax),
+        )
+        solution_edges = se
+        solution_edge_normals = sn
+
+    w_sim = None
+    w_dist = None
+    if cluster_weights is not None and use_cluster_weights:
+        cw = np.asarray(cluster_weights, dtype=np.float64).reshape(-1)
+        if cw.shape[0] != n_pts:
+            raise ValueError(
+                f"cluster_weights length {cw.shape[0]} must match number of points {n_pts}"
+            )
+        w_sim = cw
+        w_dist = cw
+
+    # Pre-compute cosine similarities (rows = edges, cols = points), legacy fitting_nsga style.
+    all_similarities = np.array(
+        [
+            cosine_similarity(normal.reshape(1, -1), data_normals)[0]
+            for normal in solution_edge_normals
+        ]
+    )
+    if w_sim is not None:
+        all_similarities = all_similarities * w_sim
+
+    edge_lengths = np.linalg.norm(solution_edges[:, 1] - solution_edges[:, 0], axis=1)
     edge_length_total = float(np.sum(edge_lengths))
 
-    edge_distances = np.array([point_segment_distance(points, edge[0], edge[1]) for edge in edges], dtype=np.float64)
-    best_edge = np.argmin(edge_distances, axis=0)
-    min_dist = np.min(edge_distances, axis=0)
-    min_dist = np.clip(min_dist, 1e-10, None)
-    log_distance = float(np.mean(np.log(min_dist)))
+    edge_distances = np.array(
+        [point_segment_distance(data_points, edge[0], edge[1]) for edge in solution_edges],
+        dtype=np.float64,
+    )
+    if w_dist is not None:
+        edge_distances = edge_distances * w_dist
 
-    edge_activity = np.zeros(len(edges), dtype=bool)
-    edge_counts = np.zeros(len(edges), dtype=np.float64)
-    for edge_id in range(len(edges)):
-        cnt = np.sum(best_edge == edge_id)
-        edge_counts[edge_id] = cnt
-        edge_activity[edge_id] = cnt > 0
+    best_edge_per_point = np.argmin(edge_distances, axis=0)
+    min_distances_per_point = np.min(edge_distances, axis=0)
+    min_distances_per_point = np.maximum(min_distances_per_point, 1e-10)
+
+    log_distance = float(np.sum(np.log(min_distances_per_point)) / len(data_points))
+
+    edge_activity_flag = np.zeros(len(solution_edges))
+    edge_attribute_no = np.zeros(len(solution_edges))
+
+    for edge in range(len(solution_edges)):
+        if edge in best_edge_per_point:
+            edge_activity_flag[edge] = 1.0
+            edge_attribute_no[edge] = float(np.sum(best_edge_per_point == edge))
+
+    ref_no = float(np.max(edge_attribute_no)) if len(edge_attribute_no) else 0.0
+    edge_activity_raw = edge_activity_flag.copy()
+    edge_activity = edge_attribute_no > 0.0 * ref_no
+
+    orientation_quality = 0.0
+    for edge_id in range(len(solution_edges)):
+        if edge_activity_raw[edge_id]:
+            activating_points = np.where(best_edge_per_point == edge_id)[0]
+            orientation_quality += float(np.sum(all_similarities[edge_id, activating_points]))
+
+    cosine_quality = orientation_quality / len(data_points)
+
     active_edge_length_relative = float(np.sum(edge_activity * edge_lengths) / max(edge_length_total, 1e-12))
 
-    edge_normal_matrix = edge_normals / np.linalg.norm(edge_normals, axis=1, keepdims=True)
-    point_normals = normals / np.maximum(np.linalg.norm(normals, axis=1, keepdims=True), 1e-12)
-    cosine_quality = 0.0
-    for edge_id in range(len(edges)):
-        ids = np.where(best_edge == edge_id)[0]
-        if ids.size == 0:
-            continue
-        cosine_quality += float(np.sum(np.dot(point_normals[ids], edge_normal_matrix[edge_id])))
-    cosine_quality = cosine_quality / max(len(points), 1)
     return log_distance, active_edge_length_relative, cosine_quality
 
 
@@ -101,6 +170,9 @@ class FitConfig:
     random_seed: int = 42
     n_elite: int = 20
     mutation_scale_xy: float = 0.03
+    polygon_subdivision: bool = False
+    edge_subdivision_lmax: float = 0.01
+    use_cluster_weights: bool = True
 
 
 def _setup_lims(points: np.ndarray) -> tuple[tuple[float, float], tuple[float, float]]:
@@ -116,6 +188,10 @@ def solve_w_nsga_style(
     normals: np.ndarray,
     catalogue_df,
     fit_cfg: Optional[FitConfig] = None,
+    cluster_weights: Optional[np.ndarray] = None,
+    show_progress: bool = False,
+    progress_label: str = "fit",
+    progress_min_interval: float = 0.25,
 ) -> Dict[str, Any]:
     """
     A lightweight NSGA-style evolutionary search (3 objectives).
@@ -129,6 +205,10 @@ def solve_w_nsga_style(
         raise ValueError("points and normals must have shape (N, 2)")
     if len(catalogue_df) == 0:
         raise ValueError("empty catalogue")
+
+    cw = cluster_weights
+    if cw is not None and not fit_cfg.use_cluster_weights:
+        cw = None
 
     x_range, y_range = _setup_lims(pts)
     catalogue = catalogue_df[["tw", "tf", "bf", "d"]].to_numpy(dtype=np.float64)
@@ -144,12 +224,30 @@ def solve_w_nsga_style(
 
     best = None
     best_score = None
-    for _ in range(int(fit_cfg.n_gen)):
+    generations = range(int(fit_cfg.n_gen))
+    if show_progress:
+        generations = tqdm(
+            generations,
+            total=int(fit_cfg.n_gen),
+            desc=f"{progress_label} generations",
+            unit="gen",
+            leave=False,
+            mininterval=max(0.0, float(progress_min_interval)),
+        )
+    for _ in generations:
         scored = []
         for ind in pop:
             cidx = int(np.clip(np.round(ind[0]), 0, n_catalogue - 1))
             params = np.array([ind[1], ind[2], catalogue[cidx][1], catalogue[cidx][0], catalogue[cidx][2], catalogue[cidx][3]])
-            obj = _cost_combined(params, pts, nrm)
+            obj = _cost_combined(
+                params,
+                pts,
+                nrm,
+                polygon_subdivision=fit_cfg.polygon_subdivision,
+                edge_subdivision_lmax=fit_cfg.edge_subdivision_lmax,
+                cluster_weights=cw,
+                use_cluster_weights=fit_cfg.use_cluster_weights,
+            )
             scalar = obj[0] - obj[1] - obj[2]
             scored.append((scalar, obj, cidx, params))
             if best_score is None or scalar < best_score:
@@ -171,6 +269,8 @@ def solve_w_nsga_style(
             child[2] = np.clip(child[2], y_range[0], y_range[1])
             next_pop.append(child.tolist())
         pop = np.asarray(next_pop, dtype=np.float64)
+        if show_progress and best_score is not None:
+            generations.set_postfix(best_score=float(best_score), refresh=False)
 
     assert best is not None
     best_obj, best_idx, best_params = best

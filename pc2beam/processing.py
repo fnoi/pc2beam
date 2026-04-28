@@ -1,3 +1,7 @@
+from __future__ import annotations
+
+from typing import Any, Dict, Optional
+
 import numpy as np
 from sklearn.neighbors import KDTree
 import open3d as o3d
@@ -201,11 +205,92 @@ def consistency_flip(normals):
 
     return normals
 
+def _build_threshold_schedule(
+    distance_threshold: float,
+    distance_threshold_schedule: Optional[list[float]],
+) -> list[float]:
+    if not distance_threshold_schedule:
+        return [float(distance_threshold)]
+    cleaned: list[float] = []
+    for value in distance_threshold_schedule:
+        try:
+            thr = float(value)
+        except (TypeError, ValueError):
+            continue
+        if thr > 0.0:
+            cleaned.append(thr)
+    if not cleaned:
+        return [float(distance_threshold)]
+    return sorted(set(cleaned))
+
+
+def _nearest_plane_line_residuals(
+    points: np.ndarray,
+    plane1: np.ndarray,
+    plane2: np.ndarray,
+) -> np.ndarray:
+    p_arr = np.asarray(points, dtype=np.float64)
+    p1 = np.asarray(plane1, dtype=np.float64)
+    p2 = np.asarray(plane2, dtype=np.float64)
+    n1 = p1[:3]
+    n2 = p2[:3]
+    n1_norm = float(np.linalg.norm(n1))
+    n2_norm = float(np.linalg.norm(n2))
+    if n1_norm < 1e-12 or n2_norm < 1e-12:
+        raise ValueError('plane normal has near-zero norm')
+    d1 = np.abs(np.dot(p_arr, n1) + float(p1[3])) / n1_norm
+    d2 = np.abs(np.dot(p_arr, n2) + float(p2[3])) / n2_norm
+    return np.minimum(d1, d2)
+
+
+def _compute_candidate_quality(
+    points: np.ndarray,
+    plane1: np.ndarray,
+    plane2: np.ndarray,
+    inliers_p1: int,
+    inliers_p2: int,
+    point_count: int,
+    threshold: float,
+    angle_deg: Optional[float],
+    quality: Dict[str, float],
+) -> Dict[str, float]:
+    residuals = _nearest_plane_line_residuals(points, plane1, plane2)
+    residual_med = float(np.median(residuals))
+    residual_p90 = float(np.quantile(residuals, 0.90))
+    residual_tube = float(quality['residual_tube_factor']) * float(threshold)
+    support_ratio = float(np.mean(residuals <= residual_tube))
+    denom = max(inliers_p1, inliers_p2, 1)
+    plane_balance = float(min(inliers_p1, inliers_p2) / denom)
+    inlier_ratio = min(1.0, (inliers_p1 + inliers_p2) / max(float(point_count), 1.0))
+    if angle_deg is None:
+        angle_score = 0.0
+    else:
+        angle_score = 1.0 - min(abs(float(angle_deg) - 90.0) / 90.0, 1.0)
+
+    norm_med = min(residual_med / max(float(threshold), 1e-6), 1.0)
+    score = (
+        float(quality['weight_residual']) * (1.0 - norm_med)
+        + float(quality['weight_support']) * support_ratio
+        + float(quality['weight_balance']) * plane_balance
+        + float(quality['weight_angle']) * angle_score
+    )
+    confidence = float(np.clip(0.6 * inlier_ratio + 0.4 * score, 0.0, 1.0))
+    return {
+        'projection_residual_median': residual_med,
+        'projection_residual_p90': residual_p90,
+        'projection_support_ratio': support_ratio,
+        'plane_support_balance': plane_balance,
+        'suitability_score': float(np.clip(score, 0.0, 1.0)),
+        'confidence': confidence,
+    }
+
+
 def calculate_s2(
-    points: np.ndarray, 
+    points: np.ndarray,
     instances: np.ndarray,
-    distance_threshold: float = 0.01, 
-    ransac_n: int = 3, 
+    distance_threshold: float = 0.01,
+    distance_threshold_schedule: Optional[list[float]] = None,
+    ransac_n: int = 3,
     num_iterations: int = 1000,
     min_points_per_instance: int = 20,
     min_remaining_points: int = 10,
@@ -213,152 +298,226 @@ def calculate_s2(
     angle_min_deg: float = 30.0,
     angle_max_deg: float = 150.0,
     enable_fallback: bool = True,
+    quality: Optional[Dict[str, float]] = None,
 ) -> dict:
-    """
-    Calculate segment orientation feature s2 for each cluster.
-    
-    Args:
-        points: Point coordinates of shape (N, 3)
-        instances: Instance labels of shape (N,)
-        distance_threshold: Maximum distance a point can be from the plane model
-        ransac_n: Number of points to randomly sample for each RANSAC iteration
-        num_iterations: Number of RANSAC iterations
-        
-    Returns:
-        s2_features: Dictionary containing instance-level features:
-            - Dictionary keys are instance IDs
-            - Each instance has 's2' direction vector and 'line_point' position
-    """
+    """Calculate segment orientation feature s2 for each cluster."""
     if instances is None:
-        raise ValueError("Instances are required to calculate s2 feature")
-    
+        raise ValueError('Instances are required to calculate s2 feature')
+
     if min_points_per_instance < ransac_n:
         min_points_per_instance = ransac_n
 
-    # Process each instance separately
+    quality_cfg = {
+        'support_ratio_min': 0.35,
+        'p90_max_factor': 2.5,
+        'residual_tube_factor': 1.5,
+        'weight_residual': 0.45,
+        'weight_support': 0.35,
+        'weight_balance': 0.10,
+        'weight_angle': 0.10,
+    }
+    if quality:
+        for key in quality_cfg:
+            if key in quality and quality[key] is not None:
+                quality_cfg[key] = float(quality[key])
+
+    threshold_schedule = _build_threshold_schedule(
+        distance_threshold=distance_threshold,
+        distance_threshold_schedule=distance_threshold_schedule,
+    )
+
     unique_instances = np.unique(instances)
-    
-    # Dictionary to store results
     instance_features = {}
-    
+
     for instance_idx, instance_id in enumerate(unique_instances, start=1):
-        # Get points for this instance
         instance_mask = instances == instance_id
         instance_points = points[instance_mask]
         point_count = int(len(instance_points))
 
         if point_count < min_points_per_instance:
             instance_features[instance_id] = {
-                "s2_vector": None,
-                "s2_point": None,
-                "status": "insufficient_points",
-                "confidence": 0.0,
-                "point_count": point_count,
-                "plane1_inliers": 0,
-                "plane2_inliers": 0,
-                "plane_angle_deg": None,
-                "method": "none",
-                "message": (
-                    f"instance has {point_count} points; requires at least "
-                    f"{min_points_per_instance}"
+                's2_vector': None,
+                's2_point': None,
+                'status': 'insufficient_points',
+                'confidence': 0.0,
+                'point_count': point_count,
+                'plane1_inliers': 0,
+                'plane2_inliers': 0,
+                'plane_angle_deg': None,
+                'method': 'none',
+                'message': (
+                    f'instance has {point_count} points; requires at least '
+                    f'{min_points_per_instance}'
                 ),
+                'selected_distance_threshold': None,
+                'threshold_attempts': 0,
+                'projection_residual_median': None,
+                'projection_residual_p90': None,
+                'projection_support_ratio': None,
+                'plane_support_balance': None,
+                'suitability_score': None,
             }
             continue
 
-        # Create open3d point cloud for this instance
-        pcd = o3d.geometry.PointCloud()
-        pcd.points = o3d.utility.Vector3dVector(np.float64(instance_points))
+        best_result = None
+        best_diag = None
+        best_threshold = None
+        attempts = 0
+        fail_status = 'plane1_failed'
+        fail_message = 'failed to estimate first plane robustly'
+        fail_plane1_inliers = 0
+        fail_plane2_inliers = 0
+        fail_angle = None
 
-        # Run RANSAC to fit first plane model
-        try:
-            plane_P1, inliers_P1 = pcd.segment_plane(
-                distance_threshold=distance_threshold,
-                ransac_n=ransac_n,
-                num_iterations=num_iterations,
-            )
-        except RuntimeError:
-            inliers_P1 = []
-            plane_P1 = None
+        for active_threshold in threshold_schedule:
+            attempts += 1
+            pcd = o3d.geometry.PointCloud()
+            pcd.points = o3d.utility.Vector3dVector(np.float64(instance_points))
 
-        if plane_P1 is None or len(inliers_P1) < min_plane_inliers:
-            instance_features[instance_id] = {
-                "s2_vector": None,
-                "s2_point": None,
-                "status": "plane1_failed",
-                "confidence": 0.0,
-                "point_count": point_count,
-                "plane1_inliers": int(len(inliers_P1)),
-                "plane2_inliers": 0,
-                "plane_angle_deg": None,
-                "method": "none",
-                "message": "failed to estimate first plane robustly",
-            }
-            continue
-
-        n_P1 = np.array(plane_P1[:3], dtype=np.float64)
-        norm_P1 = np.linalg.norm(n_P1)
-        if norm_P1 < 1e-12:
-            instance_features[instance_id] = {
-                "s2_vector": None,
-                "s2_point": None,
-                "status": "plane1_degenerate",
-                "confidence": 0.0,
-                "point_count": point_count,
-                "plane1_inliers": int(len(inliers_P1)),
-                "plane2_inliers": 0,
-                "plane_angle_deg": None,
-                "method": "none",
-                "message": "first plane normal is degenerate",
-            }
-            continue
-        n_P1 = n_P1 / norm_P1
-        d_P1 = float(plane_P1[3])
-
-        # remove inliers from pcd by inverse selection
-        pcd_remaining = pcd.select_by_index(inliers_P1, invert=True)
-
-        # find a suitable second plane P2
-        plane_P2 = None
-        inliers_P2 = []
-        angle_P1_P2 = None
-        while len(pcd_remaining.points) >= max(min_remaining_points, ransac_n):
             try:
-                plane_P2_candidate, inliers_P2_candidate = pcd_remaining.segment_plane(
-                    distance_threshold=distance_threshold,
+                plane_p1, inliers_p1 = pcd.segment_plane(
+                    distance_threshold=active_threshold,
                     ransac_n=ransac_n,
                     num_iterations=num_iterations,
                 )
             except RuntimeError:
-                break
+                inliers_p1 = []
+                plane_p1 = None
 
-            if len(inliers_P2_candidate) < min_plane_inliers:
-                break
-
-            n_P2_candidate = np.array(plane_P2_candidate[:3], dtype=np.float64)
-            norm_P2 = np.linalg.norm(n_P2_candidate)
-            if norm_P2 < 1e-12:
-                pcd_remaining = pcd_remaining.select_by_index(
-                    inliers_P2_candidate, invert=True
-                )
+            fail_plane1_inliers = int(len(inliers_p1))
+            fail_plane2_inliers = 0
+            fail_angle = None
+            if plane_p1 is None or len(inliers_p1) < min_plane_inliers:
+                fail_status = 'plane1_failed'
+                fail_message = 'failed to estimate first plane robustly'
                 continue
-            n_P2_candidate = n_P2_candidate / norm_P2
 
-            dot = float(np.clip(np.dot(n_P1, n_P2_candidate), -1.0, 1.0))
-            angle = float(np.rad2deg(np.arccos(dot)))
-            print(
-                f"(instance {instance_idx}/{len(unique_instances)}) "
-                f"angle_P1_P2: {angle:.2f}"
+            n_p1 = np.array(plane_p1[:3], dtype=np.float64)
+            norm_p1 = np.linalg.norm(n_p1)
+            if norm_p1 < 1e-12:
+                fail_status = 'plane1_degenerate'
+                fail_message = 'first plane normal is degenerate'
+                continue
+            n_p1 = n_p1 / norm_p1
+            d_p1 = float(plane_p1[3])
+
+            pcd_remaining = pcd.select_by_index(inliers_p1, invert=True)
+
+            plane_p2 = None
+            inliers_p2 = []
+            angle_p1_p2 = None
+            while len(pcd_remaining.points) >= max(min_remaining_points, ransac_n):
+                try:
+                    plane_p2_candidate, inliers_p2_candidate = pcd_remaining.segment_plane(
+                        distance_threshold=active_threshold,
+                        ransac_n=ransac_n,
+                        num_iterations=num_iterations,
+                    )
+                except RuntimeError:
+                    break
+
+                if len(inliers_p2_candidate) < min_plane_inliers:
+                    break
+
+                n_p2_candidate = np.array(plane_p2_candidate[:3], dtype=np.float64)
+                norm_p2 = np.linalg.norm(n_p2_candidate)
+                if norm_p2 < 1e-12:
+                    pcd_remaining = pcd_remaining.select_by_index(
+                        inliers_p2_candidate, invert=True
+                    )
+                    continue
+                n_p2_candidate = n_p2_candidate / norm_p2
+
+                dot = float(np.clip(np.dot(n_p1, n_p2_candidate), -1.0, 1.0))
+                angle = float(np.rad2deg(np.arccos(dot)))
+                print(
+                    f'(instance {instance_idx}/{len(unique_instances)}) '
+                    f'threshold={active_threshold:.4f} angle_P1_P2: {angle:.2f}'
+                )
+                if angle_min_deg <= angle <= angle_max_deg:
+                    plane_p2 = plane_p2_candidate
+                    inliers_p2 = inliers_p2_candidate
+                    angle_p1_p2 = angle
+                    break
+
+                pcd_remaining = pcd_remaining.select_by_index(inliers_p2_candidate, invert=True)
+
+            fail_plane2_inliers = int(len(inliers_p2))
+            fail_angle = angle_p1_p2
+            if plane_p2 is None:
+                fail_status = 'plane2_failed'
+                fail_message = 'failed to find a valid second plane'
+                continue
+
+            n_p2 = np.array(plane_p2[:3], dtype=np.float64)
+            norm_p2 = np.linalg.norm(n_p2)
+            if norm_p2 < 1e-12:
+                fail_status = 'plane2_degenerate'
+                fail_message = 'second plane normal is degenerate'
+                continue
+            n_p2 = n_p2 / norm_p2
+            d_p2 = float(plane_p2[3])
+
+            s2 = np.cross(n_p1, n_p2)
+            norm_s2 = np.linalg.norm(s2)
+            if norm_s2 < 1e-12:
+                fail_status = 'cross_product_degenerate'
+                fail_message = 'plane normals are nearly parallel'
+                continue
+            s2 = s2 / norm_s2
+
+            line_point = np.cross((n_p1 * d_p2 - n_p2 * d_p1), s2)
+            denom = np.linalg.norm(s2) ** 2
+            if denom < 1e-12:
+                fail_status = 'line_point_failed'
+                fail_message = 'failed to compute robust line anchor point'
+                continue
+            line_point = line_point / denom
+
+            try:
+                diag = _compute_candidate_quality(
+                    points=instance_points,
+                    plane1=np.asarray(plane_p1, dtype=np.float64),
+                    plane2=np.asarray(plane_p2, dtype=np.float64),
+                    inliers_p1=int(len(inliers_p1)),
+                    inliers_p2=int(len(inliers_p2)),
+                    point_count=point_count,
+                    threshold=float(active_threshold),
+                    angle_deg=angle_p1_p2,
+                    quality=quality_cfg,
+                )
+            except ValueError:
+                fail_status = 'quality_failed'
+                fail_message = 'quality scoring failed for candidate planes'
+                continue
+
+            p90_limit = float(quality_cfg['p90_max_factor']) * float(active_threshold)
+            hard_pass = (
+                diag['projection_support_ratio'] >= float(quality_cfg['support_ratio_min'])
+                and diag['projection_residual_p90'] <= p90_limit
             )
-            if angle_min_deg <= angle <= angle_max_deg:
-                plane_P2 = plane_P2_candidate
-                inliers_P2 = inliers_P2_candidate
-                angle_P1_P2 = angle
-                break
+            if not hard_pass:
+                fail_status = 'quality_gate_failed'
+                fail_message = 'candidate failed projection quality gates'
+                continue
 
-            pcd_remaining = pcd_remaining.select_by_index(inliers_P2_candidate, invert=True)
+            best_result = {
+                's2_vector': s2.astype(np.float64),
+                's2_point': np.asarray(line_point, dtype=np.float64),
+                'status': 'ok',
+                'point_count': point_count,
+                'plane1_inliers': int(len(inliers_p1)),
+                'plane2_inliers': int(len(inliers_p2)),
+                'plane_angle_deg': float(angle_p1_p2) if angle_p1_p2 is not None else None,
+                'method': 'plane_intersection',
+                'message': None,
+            }
+            best_diag = diag
+            best_threshold = float(active_threshold)
+            break
 
         used_fallback = False
-        if plane_P2 is None and enable_fallback:
+        if best_result is None and enable_fallback:
             centered = instance_points - instance_points.mean(axis=0)
             _, _, vh = np.linalg.svd(centered, full_matrices=False)
             fallback_direction = vh[0]
@@ -367,119 +526,73 @@ def calculate_s2(
                 fallback_direction = fallback_direction / fallback_norm
                 fallback_point = instance_points.mean(axis=0)
                 instance_features[instance_id] = {
-                    "s2_vector": fallback_direction.astype(np.float64),
-                    "s2_point": fallback_point.astype(np.float64),
-                    "status": "fallback_pca",
-                    "confidence": 0.3,
-                    "point_count": point_count,
-                    "plane1_inliers": int(len(inliers_P1)),
-                    "plane2_inliers": 0,
-                    "plane_angle_deg": None,
-                    "method": "pca",
-                    "message": "second plane estimation failed, used PCA fallback",
+                    's2_vector': fallback_direction.astype(np.float64),
+                    's2_point': fallback_point.astype(np.float64),
+                    'status': 'fallback_pca',
+                    'confidence': 0.3,
+                    'point_count': point_count,
+                    'plane1_inliers': fail_plane1_inliers,
+                    'plane2_inliers': 0,
+                    'plane_angle_deg': fail_angle,
+                    'method': 'pca',
+                    'message': 'second plane estimation failed, used PCA fallback',
+                    'selected_distance_threshold': None,
+                    'threshold_attempts': attempts,
+                    'projection_residual_median': None,
+                    'projection_residual_p90': None,
+                    'projection_support_ratio': None,
+                    'plane_support_balance': None,
+                    'suitability_score': None,
                 }
                 used_fallback = True
         if used_fallback:
             continue
 
-        if plane_P2 is None:
+        if best_result is None:
             instance_features[instance_id] = {
-                "s2_vector": None,
-                "s2_point": None,
-                "status": "plane2_failed",
-                "confidence": 0.0,
-                "point_count": point_count,
-                "plane1_inliers": int(len(inliers_P1)),
-                "plane2_inliers": 0,
-                "plane_angle_deg": None,
-                "method": "none",
-                "message": "failed to find a valid second plane",
+                's2_vector': None,
+                's2_point': None,
+                'status': fail_status,
+                'confidence': 0.0,
+                'point_count': point_count,
+                'plane1_inliers': fail_plane1_inliers,
+                'plane2_inliers': fail_plane2_inliers,
+                'plane_angle_deg': fail_angle,
+                'method': 'none',
+                'message': fail_message,
+                'selected_distance_threshold': None,
+                'threshold_attempts': attempts,
+                'projection_residual_median': None,
+                'projection_residual_p90': None,
+                'projection_support_ratio': None,
+                'plane_support_balance': None,
+                'suitability_score': None,
             }
             continue
 
-        n_P2 = np.array(plane_P2[:3], dtype=np.float64)
-        norm_P2 = np.linalg.norm(n_P2)
-        if norm_P2 < 1e-12:
-            instance_features[instance_id] = {
-                "s2_vector": None,
-                "s2_point": None,
-                "status": "plane2_degenerate",
-                "confidence": 0.0,
-                "point_count": point_count,
-                "plane1_inliers": int(len(inliers_P1)),
-                "plane2_inliers": int(len(inliers_P2)),
-                "plane_angle_deg": angle_P1_P2,
-                "method": "none",
-                "message": "second plane normal is degenerate",
-            }
-            continue
-        n_P2 = n_P2 / norm_P2
-        d_P2 = float(plane_P2[3])
-
-        # calculate s2
-        s2 = np.cross(n_P1, n_P2)
-        norm_s2 = np.linalg.norm(s2)
-        if norm_s2 < 1e-12:
-            instance_features[instance_id] = {
-                "s2_vector": None,
-                "s2_point": None,
-                "status": "cross_product_degenerate",
-                "confidence": 0.0,
-                "point_count": point_count,
-                "plane1_inliers": int(len(inliers_P1)),
-                "plane2_inliers": int(len(inliers_P2)),
-                "plane_angle_deg": angle_P1_P2,
-                "method": "none",
-                "message": "plane normals are nearly parallel",
-            }
-            continue
-        s2 = s2 / norm_s2  # Normalize
-
-        line_point = np.cross((n_P1 * d_P2 - n_P2 * d_P1), s2)
-        denom = np.linalg.norm(s2) ** 2
-        if denom < 1e-12:
-            instance_features[instance_id] = {
-                "s2_vector": None,
-                "s2_point": None,
-                "status": "line_point_failed",
-                "confidence": 0.0,
-                "point_count": point_count,
-                "plane1_inliers": int(len(inliers_P1)),
-                "plane2_inliers": int(len(inliers_P2)),
-                "plane_angle_deg": angle_P1_P2,
-                "method": "none",
-                "message": "failed to compute robust line anchor point",
-            }
-            continue
-        line_point = line_point / denom
-
-        inlier_ratio = min(
-            1.0,
-            (len(inliers_P1) + len(inliers_P2)) / max(float(point_count), 1.0),
-        )
-        if angle_P1_P2 is None:
-            angle_score = 0.0
-        else:
-            angle_score = 1.0 - min(abs(angle_P1_P2 - 90.0) / 90.0, 1.0)
-        confidence = float(np.clip(0.7 * inlier_ratio + 0.3 * angle_score, 0.0, 1.0))
-        
-        # Store features for this instance
         instance_features[instance_id] = {
-            "s2_vector": s2.astype(np.float64),
-            "s2_point": np.asarray(line_point, dtype=np.float64),
-            "status": "ok",
-            "confidence": confidence,
-            "point_count": point_count,
-            "plane1_inliers": int(len(inliers_P1)),
-            "plane2_inliers": int(len(inliers_P2)),
-            "plane_angle_deg": float(angle_P1_P2) if angle_P1_P2 is not None else None,
-            "method": "plane_intersection",
-            "message": None,
+            **best_result,
+            'confidence': float(best_diag['confidence']) if best_diag else 0.0,
+            'selected_distance_threshold': best_threshold,
+            'threshold_attempts': attempts,
+            'projection_residual_median': (
+                float(best_diag['projection_residual_median']) if best_diag else None
+            ),
+            'projection_residual_p90': (
+                float(best_diag['projection_residual_p90']) if best_diag else None
+            ),
+            'projection_support_ratio': (
+                float(best_diag['projection_support_ratio']) if best_diag else None
+            ),
+            'plane_support_balance': (
+                float(best_diag['plane_support_balance']) if best_diag else None
+            ),
+            'suitability_score': (
+                float(best_diag['suitability_score']) if best_diag else None
+            ),
         }
 
-    # Return instance features dictionary
     return instance_features
-
 
 def project_to_line(
     points: np.ndarray,
@@ -836,22 +949,63 @@ def orientation_estimation_s2_legacy(
     }
 
 
-def project_points_by_plane_alignment(
+def project_instance_to_section_2d(
     points: np.ndarray,
     normals: np.ndarray,
+    *,
     distance_threshold: float = 0.01,
     ransac_n: int = 3,
     num_iterations: int = 1000,
     min_plane_inliers: int = 10,
+    ransac_max_points: Optional[int] = None,
 ) -> dict:
     """
-    Legacy-style point projection/alignment by two fitted planes.
+    Project one beam instance into a canonical 2D section plane (legacy pipeline).
+
+    **Output contract** (stored under ``PointCloud.features['legacy_projection'][id]``):
+
+    **On success** (``ok`` is True):
+
+    - ``status``: ``"ok"``
+    - ``points_2d``: (N, 2), ``normals_2d``: (N, 2)
+    - ``planes``: pair of Open3D-style plane coefficients (4,)
+    - ``vector_3d``, ``left_3d``, ``right_3d``, ``center_3d``: beam-axis frame in 3D
+    - ``line_direction``, ``line_origin``: axis used for extent
+    - ``transform``: 4x4 rigid transform used to align the section
+    - ``proj_dir_0``, ``proj_dir_1``, ``points_plane_projected``: intersection geometry
+    - ``inliers_0``, ``inliers_1``: plane RANSAC inlier indices (empty if subsampling was used)
+    - ``plane_angle_deg``: angle between dominant planes when available
+
+    **On failure** (``ok`` is False):
+
+    - ``status``: short machine-readable reason (e.g. ``"plane1_failed"``, ``"transform_failed"``).
     """
     points_arr = np.asarray(points, dtype=np.float64)
     normals_arr = np.asarray(normals, dtype=np.float64)
+    if points_arr.ndim != 2 or points_arr.shape[1] != 3:
+        return {"ok": False, "status": "bad_points_shape"}
+    if normals_arr.shape != points_arr.shape:
+        return {"ok": False, "status": "normals_shape_mismatch"}
+    if len(points_arr) < 2:
+        return {"ok": False, "status": "insufficient_points"}
+    if not np.isfinite(points_arr).all() or not np.isfinite(normals_arr).all():
+        return {"ok": False, "status": "non_finite_input"}
+
+    pts_est = points_arr
+    nrm_est = normals_arr
+    inliers_stripped = False
+    if ransac_max_points is not None:
+        cap = int(ransac_max_points)
+        if cap > 0 and len(points_arr) > cap:
+            rng = np.random.default_rng(0)
+            sub_idx = rng.choice(len(points_arr), size=cap, replace=False)
+            pts_est = points_arr[sub_idx]
+            nrm_est = normals_arr[sub_idx]
+            inliers_stripped = True
+
     estimate = orientation_estimation_s2_legacy(
-        points_arr,
-        normals_arr,
+        pts_est,
+        nrm_est,
         distance_threshold=distance_threshold,
         ransac_n=ransac_n,
         num_iterations=num_iterations,
@@ -860,28 +1014,37 @@ def project_points_by_plane_alignment(
     if not estimate.get("ok", False):
         return {"ok": False, "status": estimate.get("message", "failed")}
 
-    direction = estimate["direction"]
-    origin = estimate["origin"]
+    direction = np.asarray(estimate["direction"], dtype=np.float64)
+    dn = float(np.linalg.norm(direction))
+    if dn < 1e-12:
+        return {"ok": False, "status": "degenerate_direction"}
+    direction = direction / dn
+    origin = np.asarray(estimate["origin"], dtype=np.float64)
+
     planes = estimate["planes"]
-    projected_line_points, _ = project_points_to_line(points_arr, direction, origin)
-    ref_t = (-1e5 - origin[0]) / direction[0] if abs(direction[0]) > 1e-12 else 0.0
-    ref_pt = origin + ref_t * direction
-    line_dists = np.linalg.norm(projected_line_points - ref_pt, axis=1)
-    l_ind = int(np.argmin(line_dists))
-    r_ind = int(np.argmax(line_dists))
-    left_3d = projected_line_points[l_ind]
-    right_3d = projected_line_points[r_ind]
-    vector_3d = right_3d - left_3d
-    v_norm = np.linalg.norm(vector_3d)
+    t = np.dot(points_arr - origin, direction)
+    p_on_line = origin + t[:, np.newaxis] * direction
+    l_ind = int(np.argmin(t))
+    r_ind = int(np.argmax(t))
+    left_3d = p_on_line[l_ind]
+    right_3d = p_on_line[r_ind]
+    span = right_3d - left_3d
+    v_norm = float(np.linalg.norm(span))
     if v_norm < 1e-12:
-        return {"ok": False, "status": "degenerate_segment"}
-    vector_3d = vector_3d / v_norm
+        vector_3d = direction
+    else:
+        vector_3d = span / v_norm
+        if float(np.dot(vector_3d, direction)) < 0.0:
+            vector_3d = -vector_3d
     center_3d = (left_3d + right_3d) / 2.0
 
-    proj_plane = normal_and_point_to_plane(vector_3d, left_3d)
-    proj_dir_0, _ = intersecting_line(proj_plane, planes[0])
-    proj_dir_1, _ = intersecting_line(proj_plane, planes[1])
-    proj_points_plane = points_to_actual_plane(points_arr, vector_3d, left_3d)
+    try:
+        proj_plane = normal_and_point_to_plane(vector_3d, left_3d)
+        proj_dir_0, _ = intersecting_line(proj_plane, planes[0])
+        proj_dir_1, _ = intersecting_line(proj_plane, planes[1])
+        proj_points_plane = points_to_actual_plane(points_arr, vector_3d, left_3d)
+    except ValueError as exc:
+        return {"ok": False, "status": f"geometry_failed:{exc}"}
 
     target_left = np.array([0.0, 1.0, 0.0], dtype=np.float64)
     target_center = np.array([0.0, 0.0, 0.0], dtype=np.float64)
@@ -891,7 +1054,10 @@ def project_points_by_plane_alignment(
     source_right = source_center + vector_3d
     source_angle = (source_left, source_center, source_right)
     target_angle = (target_left, target_center, target_right)
-    transform = simplified_transform_lines(source_angle, target_angle)
+    try:
+        transform = simplified_transform_lines(source_angle, target_angle)
+    except ValueError:
+        return {"ok": False, "status": "transform_failed"}
 
     points_hom = np.hstack((points_arr, np.ones((points_arr.shape[0], 1), dtype=np.float64)))
     normals_hom = np.hstack((normals_arr, np.zeros((normals_arr.shape[0], 1), dtype=np.float64)))
@@ -901,12 +1067,15 @@ def project_points_by_plane_alignment(
     n2d_norm = np.linalg.norm(normals_2d, axis=1, keepdims=True)
     n2d_norm[n2d_norm < 1e-12] = 1.0
 
+    in0 = [] if inliers_stripped else estimate["inliers_0"]
+    in1 = [] if inliers_stripped else estimate["inliers_1"]
+
     return {
         "ok": True,
         "status": "ok",
         "planes": planes,
-        "inliers_0": estimate["inliers_0"],
-        "inliers_1": estimate["inliers_1"],
+        "inliers_0": in0,
+        "inliers_1": in1,
         "plane_angle_deg": estimate.get("angle_deg"),
         "line_direction": direction,
         "line_origin": origin,
@@ -923,3 +1092,27 @@ def project_points_by_plane_alignment(
         "proj_dir_0": proj_dir_0,
         "proj_dir_1": proj_dir_1,
     }
+
+
+def project_points_by_plane_alignment(
+    points: np.ndarray,
+    normals: np.ndarray,
+    distance_threshold: float = 0.01,
+    ransac_n: int = 3,
+    num_iterations: int = 1000,
+    min_plane_inliers: int = 10,
+) -> dict:
+    """
+    Legacy-style point projection/alignment by two fitted planes.
+
+    Delegates to :func:`project_instance_to_section_2d` (backward-compatible defaults).
+    """
+    return project_instance_to_section_2d(
+        points,
+        normals,
+        distance_threshold=distance_threshold,
+        ransac_n=ransac_n,
+        num_iterations=num_iterations,
+        min_plane_inliers=min_plane_inliers,
+        ransac_max_points=None,
+    )
