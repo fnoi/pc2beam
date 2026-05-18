@@ -10,8 +10,9 @@ Use this workflow when you need reproducible simulation runs for experimentation
 1. tessellate IFC geometry and export HELIOS scene assets
 2. write HELIOS scene/survey XML
 3. generate per-beam IFC ground truth YAML in run output (`pc2beam_input/<ifc_stem>_gt.yaml`, with `start`/`end` XYZ endpoints and `beam_type`)
-4. optionally run HELIOS to produce LAS point clouds
-5. convert LAS output to pc2beam demo-compatible TXT (`xyz nx ny nz instance_id`)
+4. write beam source / reconstruction stub table YAML in `pc2beam_input/` (see Output artifact contract)
+5. optionally run HELIOS to produce LAS point clouds
+6. convert LAS output to pc2beam demo-compatible TXT (`xyz nx ny nz instance_id`)
 
 Core orchestration lives in `pc2beam.helios_pipeline.run_ifc_helios_pipeline(...)`.
 
@@ -80,7 +81,20 @@ Typical layout:
   pc2beam_input/
     model_0_z_up_gt.yaml
     points_with_normals_instances.txt
+    <ifc_stem>_beam_source_instance_rows.yaml
+    <ifc_stem>_beam_reconstruction_io_stub.yaml
 ```
+
+Beam ID tables (for joining input IFC to TXT ``instance_id`` and later to output IFC):
+
+- **`<ifc_stem>_beam_source_instance_rows.yaml`:** ``schema_version`` + ``rows``, each row
+  ``source_global_id`` (IFC ``GlobalId``), ``instance_id`` (label in
+  ``points_with_normals_instances.txt``), ``bone_id``. At generation time
+  ``bone_id == instance_id``; after skeleton merge, downstream tools may rewrite
+  so several rows share one ``bone_id``.
+- **`<ifc_stem>_beam_reconstruction_io_stub.yaml`:** same ``rows`` plus
+  ``output_global_id: null`` per row for reconstruction / IFC export to fill
+  (same GUID on rows that merged into one output beam).
 
 The generated `pc2beam_input/points_with_normals_instances.txt` can be loaded with:
 

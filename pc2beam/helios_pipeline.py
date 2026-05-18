@@ -6,7 +6,7 @@ from __future__ import annotations
 
 import uuid
 from pathlib import Path
-from typing import Any, Dict, Optional, Sequence, Union
+from typing import Any, Dict, List, Optional, Sequence, Union
 
 from omegaconf import DictConfig, OmegaConf
 
@@ -15,6 +15,49 @@ from pc2beam.helios_to_pc2beam import export_helios_sim_to_pc2beam_txt
 from pc2beam.helios_runner import resolve_helios_data_root, run_helios
 from pc2beam.helios_survey import load_scanners_config, write_scene_xml, write_survey_xml
 from pc2beam.ifc_mesh_export import export_ifc_scene_obj_mtl, save_sidecar
+
+
+def _build_beam_source_instance_rows(sidecar: DictConfig) -> List[Dict[str, Any]]:
+    """
+    One table row per source ``IfcBeam``: IFC ``GlobalId``, TXT ``instance_id``,
+    and ``bone_id``.
+
+    At HELIOS export time there is no skeleton merge yet, so ``bone_id`` is set
+    to ``instance_id`` (identity). After reconstruction, downstream tools may
+    rewrite rows so multiple sources share one ``bone_id`` when beams aggregate.
+    """
+    beams = OmegaConf.select(sidecar, "beams") or []
+    out: List[Dict[str, Any]] = []
+
+    for row in beams:
+        gid = row.get("global_id") if hasattr(row, "get") else None
+        if gid is None:
+            continue
+        gid_str = str(gid).strip()
+        if not gid_str or gid_str.lower() == "none":
+            continue
+
+        iid = row.get("instance_id") if hasattr(row, "get") else None
+        if iid is None:
+            continue
+        iid_int = int(iid)
+        out.append(
+            {
+                "source_global_id": gid_str,
+                "instance_id": iid_int,
+                "bone_id": iid_int,
+            }
+        )
+
+    return out
+
+
+def _build_beam_reconstruction_io_stub_rows(rows: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """Same rows as the source table plus ``output_global_id: null`` for recon/IFC export to fill."""
+    stub: List[Dict[str, Any]] = []
+    for r in rows:
+        stub.append({**r, "output_global_id": None})
+    return stub
 
 
 def run_ifc_helios_pipeline(
@@ -45,7 +88,11 @@ def run_ifc_helios_pipeline(
         stores ``start``/``end`` XYZ endpoints and ``beam_type``), ``sim_output_dir``,
         ``pc2beam_input_txt`` (generated when simulator runs), ``helios_data``
         (``None`` when ``run_simulation`` is ``False``),
-        ``completed_process`` / ``returncode`` when the simulator runs.
+        ``completed_process`` / ``returncode`` when the simulator runs,
+        ``beam_source_instance_rows_yaml`` (table: ``source_global_id``,
+        ``instance_id``, ``bone_id``; initially ``bone_id == instance_id``),
+        ``beam_reconstruction_io_stub_yaml`` (same rows plus ``output_global_id``,
+        stub ``null`` until reconstruction fills it).
     """
     ifc_path = Path(ifc_path)
     output_root = Path(output_root)
@@ -82,6 +129,27 @@ def run_ifc_helios_pipeline(
         output_yaml=pc2beam_input_dir / f"{ifc_path.stem}_gt.yaml",
     )
 
+    beam_source_rows = _build_beam_source_instance_rows(sidecar)
+    beam_source_instance_rows_yaml = (
+        pc2beam_input_dir / f"{ifc_path.stem}_beam_source_instance_rows.yaml"
+    )
+    OmegaConf.save(
+        OmegaConf.create({"schema_version": 1, "rows": beam_source_rows}),
+        beam_source_instance_rows_yaml,
+    )
+    beam_reconstruction_io_stub_yaml = (
+        pc2beam_input_dir / f"{ifc_path.stem}_beam_reconstruction_io_stub.yaml"
+    )
+    OmegaConf.save(
+        OmegaConf.create(
+            {
+                "schema_version": 1,
+                "rows": _build_beam_reconstruction_io_stub_rows(beam_source_rows),
+            }
+        ),
+        beam_reconstruction_io_stub_yaml,
+    )
+
     scene_xml = scenes / "pc2beam_scene.xml"
     if helios_one_obj_per_instance:
         parts = OmegaConf.select(sidecar, "helios_scene_parts") or []
@@ -113,6 +181,8 @@ def run_ifc_helios_pipeline(
         "beams_mtl": None if helios_one_obj_per_instance else mtl_path.resolve(),
         "sidecar_yaml": sidecar_path.resolve(),
         "ground_truth_yaml": ground_truth_yaml,
+        "beam_source_instance_rows_yaml": beam_source_instance_rows_yaml.resolve(),
+        "beam_reconstruction_io_stub_yaml": beam_reconstruction_io_stub_yaml.resolve(),
         "scene_xml": scene_xml.resolve(),
         "survey_xml": survey_xml.resolve(),
         "sim_output_dir": sim_out.resolve(),

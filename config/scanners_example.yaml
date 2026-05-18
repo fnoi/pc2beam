@@ -19,8 +19,29 @@ helios:
   head_rotate_stop_deg: 180.0
 
 scanners:
-  - id: scan_north
-    position: [0.0, 12.0, 1.5]
+  # Cardinal layout: +Y north, +X east, -X west (world matches IFC z-up export).
+  - id: scan_south_east
+    position: [-9.5, 4.6, 1.5]
+    attitude_deg:
+      yaw: -90.0
+      pitch: 0.0
+      roll: 0.0
+    head_rotate_start_deg: -180.0
+    head_rotate_stop_deg: 180.0
+    head_rotate_per_sec_deg: 10.0
+
+  - id: scan_south_west
+    position: [3.5, 4.0, 1.5]
+    attitude_deg:
+      yaw: 180.0
+      pitch: 0.0
+      roll: 0.0
+    head_rotate_start_deg: -180.0
+    head_rotate_stop_deg: 180.0
+    head_rotate_per_sec_deg: 10.0
+
+  - id: scan_north_west
+    position: [3.4, -8, 1.5]
     attitude_deg:
       yaw: 0.0
       pitch: 0.0
@@ -29,12 +50,22 @@ scanners:
     head_rotate_stop_deg: 180.0
     head_rotate_per_sec_deg: 10.0
 
-  - id: scan_south_west
-    position: [-8.0, 4.0, 1.5]
+  - id: scan_north_east
+    position: [-9.5, -9.3, 1.5]
     attitude_deg:
-      yaw: 55.0
-      pitch: -5.0
+      yaw: 90.0
+      pitch: 0.0
       roll: 0.0
-    head_rotate_start_deg: -120.0
-    head_rotate_stop_deg: 120.0
-    head_rotate_per_sec_deg: 12.0
+    head_rotate_start_deg: -180.0
+    head_rotate_stop_deg: 180.0
+    head_rotate_per_sec_deg: 10.0
+
+  - id: scan_center
+    position: [-2.4, -3.0, 1.5]
+    attitude_deg:
+      yaw: 0.0
+      pitch: 0.0
+      roll: 0.0
+    head_rotate_start_deg: -180.0
+    head_rotate_stop_deg: 180.0
+    head_rotate_per_sec_deg: 10.0

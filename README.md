@@ -119,6 +119,12 @@ demo-compatible input TXT at
 with columns: `x y z nx ny nz instance_id`. This can be used directly with
 `PointCloud.from_txt(...)` as in `notebooks/demo.ipynb`.
 
+The same run directory also includes beam table YAML under `pc2beam_input/`:
+`<ifc_stem>_beam_source_instance_rows.yaml` (rows: `source_global_id`,
+`instance_id`, `bone_id`; initially `bone_id == instance_id`) and
+`<ifc_stem>_beam_reconstruction_io_stub.yaml` (same rows plus `output_global_id`
+stub `null` for reconstruction to populate after output IFC export).
+
 Compatibility paths remain available:
 
 - `run_helios_simulation.py`
